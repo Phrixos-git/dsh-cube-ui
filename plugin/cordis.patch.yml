@@ -1,0 +1,15 @@
+# Cube UI bundle patch — one browser-only row.
+#
+# The bundle layer is a top-level YAML array of Cordis loader patch entries
+# (see @deepseek-ai/cordis-plugin-include PatchOptions): `insert` appends this
+# row to the composed profile tree, and a later layer (the profile's own
+# cordis.patch.yml) can target the row by id.
+#
+# The row's `name` must be the package specifier, not a file path and not a
+# `cordis:` builtin: @deepseek-ai/dsh-client-modules resolves the entry's
+# module to the nearest package.json, reads its `dsh.client` declaration, and
+# serves `exports["./client"]` as the browser bundle. The host half
+# (index.js) is a no-op; the browser half (client.js) does all the work.
+- insert:
+    - id: cube-ui
+      name: '@local/dsh-cube-ui'

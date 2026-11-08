@@ -1,0 +1,1998 @@
+/* ==========================================================================
+   DSH Cube UI — client-plugin stylesheet
+
+   Scope
+   -----
+   Every rule is namespaced under one of the two roots the client bundle
+   renders:
+     .cube-ui          the cube stage (position:absolute; inset:0, fills the
+                       main panel; carries data-mode="browse" | "inside")
+     .cube-ui-overlay  floating chrome (rail, diamond, dock, modal, tip)
+   There are no html / body / :root / bare `*` selectors and no host hash
+   classes here, so nothing can leak into the standard DSH UI.
+
+   Theme
+   -----
+   The Phase 0 mock mirrored the DSH tokens in its own :root. That mirror is
+   intentionally gone: colors come from the live theme tokens (--dsw-*), and
+   cube-specific values are declared as --cube-* on the two roots. Every
+   surface/accent is derived with color-mix() from theme tokens, so the
+   stylesheet follows both the light and the dark theme without hard-coded
+   dark colors (only black/white alpha is used for masks and soft shadows).
+
+   Regression guard
+   ----------------
+   Firefox software compositing double-draws text when a 3D-transformed
+   element (.face) carries box-shadow or filter: drop-shadow. Do NOT add
+   either property to .face / .face-inner / .face-room. The floor glow is a
+   plain 2D element, so blur() there is fine.
+   ========================================================================== */
+
+/* --------------------------------------------------------------------------
+   1. Cube tokens, derived from the live theme
+   -------------------------------------------------------------------------- */
+
+.cube-ui,
+.cube-ui-overlay {
+  /* geometry */
+  --cube-radius: 16px;
+  --cube-ease: cubic-bezier(0.2, 0.9, 0.25, 1);
+
+  /* accent — follows the theme's blue business color */
+  --cube-accent: var(--dsw-alias-state-business-primary);
+  --cube-accent-2: var(--dsw-alias-state-done-primary);
+  --cube-accent-soft: color-mix(in oklab, var(--cube-accent) 16%, transparent);
+  --cube-accent-line: color-mix(in oklab, var(--cube-accent) 42%, transparent);
+
+  /* surfaces */
+  --cube-surface-raised: var(--dsw-menu-surface-fill, var(--dsw-alias-bg-layer-2));
+  --cube-surface-sunken: color-mix(in oklab, var(--dsw-alias-bg-base) 55%, transparent);
+  --cube-hover: var(--dsw-alias-interactive-bg-hover);
+  --cube-hover-active: var(--dsw-alias-interactive-bg-active);
+
+  /* borders */
+  --cube-border-soft: var(--dsw-alias-border-l1);
+  --cube-border: var(--dsw-alias-border-l2);
+  --cube-border-strong: var(--dsw-alias-border-l3);
+  --cube-border-accent: color-mix(in oklab, var(--cube-accent) 55%, transparent);
+
+  /* text */
+  --cube-text: var(--dsw-alias-label-primary);
+  --cube-text-dim: var(--dsw-alias-label-secondary);
+  --cube-text-faint: var(--dsw-alias-label-tertiary);
+  --cube-text-caption: var(--dsw-alias-label-caption);
+  --cube-text-on-accent: var(--dsw-alias-label-primary-foreground);
+
+  /* status */
+  --cube-ok: var(--dsw-alias-state-success-primary);
+  --cube-ok-soft: var(--dsw-alias-state-success-tertiary);
+
+  /* elevation / scrollbars */
+  --cube-shadow: var(--dsw-elevation-prominent, 0 0 0 0.5px var(--dsw-alias-border-l3));
+  --cube-shadow-soft: var(--dsw-elevation-panel, 0 0 0 0.5px var(--dsw-alias-border-l1));
+  --cube-scroll-thumb: var(--dsw-alias-scrollbar-bg-l1);
+  --cube-scroll-thumb-hover: var(--dsw-alias-scrollbar-hover-l1);
+
+  /* cube faces — mixed from layer + accent so both themes stay legible */
+  --cube-face-top: color-mix(in oklab, var(--dsw-alias-bg-layer-3) 88%, var(--cube-accent) 12%);
+  --cube-face-mid: color-mix(in oklab, var(--dsw-alias-bg-layer-2) 93%, var(--cube-accent) 7%);
+  --cube-face-bottom: color-mix(in oklab, var(--dsw-alias-bg-layer-1) 97%, var(--cube-accent) 3%);
+  --cube-face-front-top: color-mix(in oklab, var(--dsw-alias-bg-layer-3) 80%, var(--cube-accent) 20%);
+  --cube-face-front-bottom: color-mix(in oklab, var(--dsw-alias-bg-layer-2) 90%, var(--cube-accent) 10%);
+
+  /* inherited text/style baseline for the plugin subtree */
+  color: var(--cube-text);
+  font-family: var(--dsw-font-family);
+  -webkit-font-smoothing: antialiased;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* --------------------------------------------------------------------------
+   2. Root layout
+   -------------------------------------------------------------------------- */
+
+.cube-ui {
+  --cube-size: 520px; /* overridden by media/container queries on .cube-shell */
+
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+
+  /* sizes inside the cube follow the panel width, not the viewport (the
+     sidebar can be expanded while the window is wide) */
+  container-type: inline-size;
+  container-name: cube;
+}
+
+.cube-ui-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  overflow: hidden;
+  pointer-events: none; /* additive layer: only explicit chrome is clickable */
+
+  container-type: inline-size;
+  container-name: cube;
+}
+
+.cube-ui-overlay .rail,
+.cube-ui-overlay .rail-panel,
+.cube-ui-overlay .diamond,
+.cube-ui-overlay .dock,
+.cube-ui-overlay .modal-backdrop {
+  pointer-events: auto;
+}
+
+/* --------------------------------------------------------------------------
+   3. Basics (scoped: no global resets)
+   -------------------------------------------------------------------------- */
+
+.cube-ui,
+.cube-ui *,
+.cube-ui *::before,
+.cube-ui *::after,
+.cube-ui-overlay,
+.cube-ui-overlay *,
+.cube-ui-overlay *::before,
+.cube-ui-overlay *::after {
+  box-sizing: border-box;
+}
+
+.cube-ui button,
+.cube-ui input,
+.cube-ui textarea,
+.cube-ui-overlay button,
+.cube-ui-overlay input,
+.cube-ui-overlay textarea {
+  font: inherit;
+}
+
+.cube-ui button:focus-visible,
+.cube-ui [role="button"]:focus-visible,
+.cube-ui-overlay button:focus-visible {
+  outline: 2px solid var(--cube-accent);
+  outline-offset: 2px;
+}
+
+/* icons are inline SVG from the client bundle */
+.cube-ui .ico,
+.cube-ui-overlay .ico {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.cube-ui .ico svg,
+.cube-ui-overlay .ico svg {
+  display: block;
+  width: 17px;
+  height: 17px;
+}
+
+.cube-ui .ss-ico svg { width: 14px; height: 14px; }
+.cube-ui .icon-btn .ico svg { width: 15px; height: 15px; }
+.cube-ui .avatar svg { width: 10px; height: 10px; }
+
+.cube-ui-overlay .rail-btn .ico svg { width: 18px; height: 18px; }
+.cube-ui-overlay .rail-brand .ico svg { width: 19px; height: 19px; }
+.cube-ui-overlay .brand-mark .ico svg { width: 15px; height: 15px; }
+.cube-ui-overlay .di-ico svg { width: 15px; height: 15px; }
+.cube-ui-overlay .dock-ico svg { width: 15px; height: 15px; }
+.cube-ui-overlay .dock-caret svg { width: 13px; height: 13px; }
+.cube-ui-overlay .rp-ico svg { width: 15px; height: 15px; }
+.cube-ui-overlay .dq .ico svg { width: 19px; height: 19px; }
+
+/* --------------------------------------------------------------------------
+   4. Stage and cube
+   -------------------------------------------------------------------------- */
+
+.cube-ui .bg-glow {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(900px 620px at 50% 34%,
+      color-mix(in oklab, var(--cube-accent) 18%, transparent), transparent 62%),
+    radial-gradient(700px 520px at 82% 78%,
+      color-mix(in oklab, var(--cube-accent-2) 12%, transparent), transparent 65%),
+    radial-gradient(760px 540px at 12% 16%,
+      color-mix(in oklab, var(--cube-accent) 8%, transparent), transparent 60%),
+    color-mix(in oklab, var(--dsw-alias-bg-base) 62%, transparent);
+}
+
+.cube-ui .stage {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  perspective: 1700px;
+  perspective-origin: 50% 46%;
+  overflow: hidden;
+  cursor: default;
+  /* Drag-to-rotate only. touch-action is intersected along the ancestor chain,
+     so the conversation panel must be rendered OUTSIDE .stage (a sibling under
+     .cube-ui) for touch scrolling inside .conv to keep working. The .conv
+     rules below centre it with inset:0 + margin:auto, which is identical in
+     both nestings; this note only concerns touch behaviour. */
+  touch-action: none;
+  user-select: none;
+}
+
+/* Rotation is a cube gesture: only the cube surface advertises drag. */
+.cube-ui .cube-shell {
+  cursor: grab;
+}
+
+.cube-ui .stage.grabbing .cube-shell {
+  cursor: grabbing;
+}
+
+.cube-ui .cube-shell button {
+  cursor: pointer;
+}
+
+/* The stage disables selection for rotation, but the front-face conversation
+   is a reading surface: its text stays selectable while its chrome is not. */
+.cube-ui .face-conv {
+  cursor: default;
+  user-select: text;
+}
+
+.cube-ui .face-conv * {
+  user-select: text;
+}
+
+.cube-ui .face-conv .conv-head,
+.cube-ui .face-conv .conv-head *,
+.cube-ui .face-conv button {
+  user-select: none;
+}
+
+.cube-ui .floor-glow {
+  position: absolute;
+  left: 50%;
+  bottom: 6%;
+  z-index: 0;
+  width: min(820px, 72cqw);
+  height: 190px;
+  transform: translateX(-50%);
+  border-radius: 50%;
+  pointer-events: none;
+  /* 2D element, not a 3D face: blur is safe here */
+  filter: blur(22px);
+  background: radial-gradient(closest-side,
+    color-mix(in oklab, var(--cube-accent) 30%, transparent),
+    color-mix(in oklab, var(--cube-accent) 8%, transparent) 58%,
+    transparent 72%);
+  transition: opacity 0.5s;
+}
+
+.cube-ui .cube-shell {
+  position: relative;
+  z-index: 1;
+  width: var(--cube-size);
+  height: var(--cube-size);
+  --h: calc(var(--cube-size) / 2);
+  transform-style: preserve-3d;
+  transition: transform 0.75s var(--cube-ease), opacity 0.45s var(--cube-ease);
+}
+
+.cube-ui .cube-shell.flip {
+  transform: scale(0.84);
+  opacity: 0.25;
+}
+
+.cube-ui .cube {
+  position: absolute;
+  inset: 0;
+  transform-style: preserve-3d;
+}
+
+.cube-ui .cube.snap {
+  transition: transform 0.5s var(--cube-ease);
+}
+
+/* ---- faces (browse mode) ---- */
+
+.cube-ui .face {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border-radius: var(--cube-radius);
+  border: 1px solid var(--cube-border);
+  border-top-color: var(--cube-border-strong);
+  background: linear-gradient(155deg,
+    var(--cube-face-top) 0%,
+    var(--cube-face-mid) 58%,
+    var(--cube-face-bottom) 100%);
+  transition: background 0.5s, border-color 0.3s;
+  transform: translateZ(var(--h));
+  /* Firefox: never add box-shadow / filter here (text double-draw bug). */
+}
+
+.cube-ui .face[data-slot="1"] { transform: rotateY(90deg) translateZ(var(--h)); }
+.cube-ui .face[data-slot="2"] { transform: rotateY(180deg) translateZ(var(--h)); }
+.cube-ui .face[data-slot="3"] { transform: rotateY(-90deg) translateZ(var(--h)); }
+.cube-ui .face[data-slot="4"] { transform: rotateX(90deg) translateZ(var(--h)); }
+.cube-ui .face[data-slot="5"] { transform: rotateX(-90deg) translateZ(var(--h)); }
+
+.cube-ui .face.front {
+  border-color: var(--cube-border-accent);
+  border-top-color: color-mix(in oklab, var(--cube-accent) 72%, transparent);
+  background: linear-gradient(155deg,
+    var(--cube-face-front-top) 0%,
+    var(--cube-face-front-bottom) 100%);
+}
+
+/* face content: workspace + session list */
+.cube-ui .face-inner {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 16px;
+  transition: opacity 0.3s;
+}
+
+.cube-ui .face-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.cube-ui .face-idx {
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  color: var(--cube-text-caption);
+}
+
+.cube-ui .face-title {
+  margin: 0;
+  font-size: 14.5px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.cube-ui .face-path {
+  margin: -4px 0 2px;
+  font-size: 10.5px;
+  color: var(--cube-text-caption);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.cube-ui .sessions {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  flex: 1;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.cube-ui .session {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 8px 10px;
+  border: 1px solid var(--cube-border-soft);
+  border-radius: 10px;
+  background: var(--cube-hover);
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, transform 0.15s;
+}
+
+.cube-ui .session:hover {
+  background: var(--cube-accent-soft);
+  border-color: var(--cube-border-accent);
+  transform: translateX(1px);
+}
+
+.cube-ui .session .stitle {
+  font-size: 12.5px;
+  line-height: 1.35;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.cube-ui .session .smeta {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 10.5px;
+  color: var(--cube-text-caption);
+}
+
+.cube-ui .session .dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--cube-ok);
+  box-shadow: 0 0 0 3px color-mix(in oklab, var(--cube-ok) 16%, transparent);
+  animation: cube-pulse 1.7s ease-in-out infinite;
+}
+
+.cube-ui .face-empty {
+  flex: 1;
+  display: grid;
+  place-items: center;
+  font-size: 11.5px;
+  color: var(--cube-text-caption);
+  border: 1px dashed var(--cube-border);
+  border-radius: 10px;
+}
+
+.cube-ui .face-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.cube-ui .face-count {
+  font-size: 10.5px;
+  color: var(--cube-text-caption);
+}
+
+/* ---- face "inside the room" labels ---- */
+
+.cube-ui .face-room {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  padding: 20px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.4s;
+}
+
+.cube-ui .room-idx {
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  color: var(--cube-text-caption);
+}
+
+.cube-ui .room-foot {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.cube-ui .room-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--cube-text-dim);
+  cursor: pointer;
+}
+
+.cube-ui .room-title:hover {
+  color: var(--cube-text);
+}
+
+.cube-ui .room-count {
+  font-size: 10.5px;
+  color: var(--cube-text-caption);
+}
+
+.cube-ui .face.front .room-idx {
+  color: var(--cube-accent);
+}
+
+.cube-ui .face.front .room-title {
+  color: var(--cube-text);
+}
+
+/* --------------------------------------------------------------------------
+   5. "Inside the cube" mode — .stage.inside and [data-mode="inside"]
+   -------------------------------------------------------------------------- */
+
+.cube-ui .stage.inside .floor-glow,
+.cube-ui[data-mode="inside"] .floor-glow {
+  opacity: 0.35;
+}
+
+.cube-ui .stage.inside .cube-shell,
+.cube-ui[data-mode="inside"] .cube-shell {
+  transform: scale(1.86);
+}
+
+/* the faces become translucent glass walls with a faint grid */
+.cube-ui .stage.inside .face,
+.cube-ui[data-mode="inside"] .face {
+  background:
+    linear-gradient(color-mix(in oklab, var(--cube-accent) 9%, transparent) 1px,
+      transparent 1px) 0 0 / 52px 52px,
+    linear-gradient(90deg, color-mix(in oklab, var(--cube-accent) 9%, transparent) 1px,
+      transparent 1px) 0 0 / 52px 52px,
+    color-mix(in oklab, var(--dsw-alias-bg-base) 24%, transparent);
+  border-color: var(--dsw-alias-border-l1);
+  border-top-color: var(--dsw-alias-border-l1);
+}
+
+.cube-ui .stage.inside .face.front,
+.cube-ui[data-mode="inside"] .face.front {
+  border-color: color-mix(in oklab, var(--cube-accent) 34%, transparent);
+  background: color-mix(in oklab, var(--cube-accent) 5%, transparent);
+}
+
+.cube-ui .stage.inside .face-inner,
+.cube-ui[data-mode="inside"] .face-inner {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.cube-ui .stage.inside .face-room,
+.cube-ui[data-mode="inside"] .face-room {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.cube-ui .stage.inside .face.front .face-room,
+.cube-ui[data-mode="inside"] .face.front .face-room {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+/* --------------------------------------------------------------------------
+   6. Conversation panel (inside mode only)
+   -------------------------------------------------------------------------- */
+
+.cube-ui .conv {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  margin: auto; /* centres in .stage or directly in .cube-ui */
+  width: min(720px, 92cqw);
+  height: min(600px, 66%);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid var(--cube-border-strong);
+  border-radius: 20px;
+  background: linear-gradient(168deg,
+    color-mix(in oklab, var(--dsw-alias-bg-layer-2) 94%, transparent),
+    color-mix(in oklab, var(--dsw-alias-bg-base) 97%, transparent));
+  box-shadow: var(--cube-shadow),
+    0 18px 48px -20px color-mix(in srgb, #000 22%, transparent);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  opacity: 0;
+  pointer-events: none;
+  transform: scale(0.97) translateY(10px);
+  transition: opacity 0.35s var(--cube-ease), transform 0.35s var(--cube-ease);
+}
+
+.cube-ui .conv.show,
+.cube-ui[data-mode="inside"] .conv {
+  opacity: 1;
+  pointer-events: auto;
+  transform: none;
+}
+
+.cube-ui[data-mode="browse"] .conv {
+  display: none;
+}
+
+.cube-ui .conv-head {
+  position: relative;
+  z-index: 2;
+  padding: 12px 14px 10px;
+  border-bottom: 1px solid var(--cube-border-soft);
+  background: var(--cube-hover);
+  user-select: none;
+}
+
+.cube-ui .conv-topline {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.cube-ui .conv-ws {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  font-size: 12px;
+  color: var(--cube-text-dim);
+}
+
+.cube-ui .conv-ws b {
+  color: var(--cube-text);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.cube-ui .conv-ws .conv-path {
+  color: var(--cube-text-caption);
+  font-size: 10.5px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.cube-ui .conv-ws .dot {
+  width: 6px;
+  height: 6px;
+  flex: none;
+  border-radius: 50%;
+  background: var(--cube-accent);
+  box-shadow: 0 0 0 3px var(--cube-accent-soft);
+}
+
+.cube-ui .icon-btn,
+.cube-ui-overlay .icon-btn {
+  margin-left: auto;
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--cube-text-dim);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.cube-ui .icon-btn:hover,
+.cube-ui-overlay .icon-btn:hover {
+  background: var(--cube-hover-active);
+  color: var(--cube-text);
+}
+
+.cube-ui .conv-sessionline {
+  position: relative;
+  margin-top: 9px;
+}
+
+.cube-ui .session-select {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 12px;
+  border: 1px solid var(--cube-border);
+  border-radius: 11px;
+  background: var(--cube-hover);
+  color: var(--cube-text);
+  font-size: 12.5px;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+}
+
+.cube-ui .session-select:hover {
+  border-color: var(--cube-border-accent);
+  background: var(--cube-accent-soft);
+}
+
+.cube-ui .ss-ico {
+  color: var(--cube-text-dim);
+}
+
+.cube-ui .ss-label {
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.cube-ui .ss-status {
+  flex: none;
+  font-size: 10px;
+  padding: 2px 7px;
+  border-radius: 999px;
+  color: var(--cube-text-dim);
+  border: 1px solid var(--cube-border);
+}
+
+.cube-ui .ss-status.running {
+  color: var(--cube-ok);
+  border-color: color-mix(in oklab, var(--cube-ok) 38%, transparent);
+  background: var(--cube-ok-soft);
+}
+
+.cube-ui .ss-caret {
+  flex: none;
+  width: 0;
+  height: 0;
+  border-left: 4px solid transparent;
+  border-right: 4px solid transparent;
+  border-top: 5px solid var(--cube-text-dim);
+  transition: transform 0.2s;
+}
+
+.cube-ui .session-select[aria-expanded="true"] .ss-caret {
+  transform: rotate(180deg);
+}
+
+.cube-ui .session-menu {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: calc(100% + 6px);
+  z-index: 10;
+  max-height: 258px;
+  overflow: auto;
+  padding: 6px;
+  border: 1px solid var(--cube-border-strong);
+  border-radius: 13px;
+  background: var(--cube-surface-raised);
+  box-shadow: var(--cube-shadow);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+}
+
+.cube-ui .session-menu[hidden] {
+  display: none;
+}
+
+.cube-ui .session-menu button {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 10px;
+  border: none;
+  border-radius: 9px;
+  background: transparent;
+  color: var(--cube-text);
+  font-size: 12.5px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.cube-ui .session-menu button:hover {
+  background: var(--cube-hover-active);
+}
+
+.cube-ui .session-menu button.current {
+  background: var(--cube-accent-soft);
+}
+
+.cube-ui .session-menu .mi-meta {
+  margin-left: auto;
+  font-size: 10.5px;
+  color: var(--cube-text-caption);
+}
+
+.cube-ui .session-menu .mi-new {
+  color: var(--cube-accent);
+}
+
+.cube-ui .conv-body {
+  flex: 1;
+  overflow: auto;
+  padding: 16px 16px 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.cube-ui .conv-empty {
+  margin: auto;
+  text-align: center;
+  color: var(--cube-text-caption);
+  font-size: 12.5px;
+  line-height: 1.8;
+}
+
+.cube-ui .conv-empty .ghost-btn {
+  margin-top: 12px;
+}
+
+.cube-ui .msg {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-width: 88%;
+}
+
+.cube-ui .msg .who {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 10.5px;
+  color: var(--cube-text-caption);
+}
+
+.cube-ui .msg .bubble {
+  padding: 10px 12px;
+  border-radius: 13px;
+  font-size: 12.5px;
+  line-height: 1.7;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.cube-ui .msg.user {
+  align-self: flex-end;
+  align-items: flex-end;
+}
+
+.cube-ui .msg.user .bubble {
+  background: linear-gradient(160deg,
+    color-mix(in oklab, var(--cube-accent) 26%, transparent),
+    color-mix(in oklab, var(--cube-accent) 14%, transparent));
+  border: 1px solid color-mix(in oklab, var(--cube-accent) 30%, transparent);
+  border-bottom-right-radius: 5px;
+}
+
+.cube-ui .msg.assistant .bubble {
+  border: 1px solid var(--cube-border-soft);
+  background: var(--cube-hover);
+  border-bottom-left-radius: 5px;
+}
+
+.cube-ui .msg .avatar {
+  width: 18px;
+  height: 18px;
+  display: grid;
+  place-items: center;
+  border-radius: 6px;
+  font-size: 9px;
+  color: var(--cube-accent);
+  background: var(--cube-accent-soft);
+  border: 1px solid var(--cube-accent-line);
+}
+
+.cube-ui .typing {
+  display: flex;
+  gap: 4px;
+  padding: 2px 4px 8px;
+}
+
+.cube-ui .typing i {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--cube-text-faint);
+  animation: cube-bounce 1.2s infinite;
+}
+
+.cube-ui .typing i:nth-child(2) { animation-delay: 0.15s; }
+.cube-ui .typing i:nth-child(3) { animation-delay: 0.3s; }
+
+.cube-ui .composer {
+  display: flex;
+  gap: 10px;
+  padding: 12px 14px 14px;
+  border-top: 1px solid var(--cube-border-soft);
+  background: var(--cube-hover);
+}
+
+.cube-ui .composer textarea {
+  flex: 1;
+  resize: none;
+  min-height: 42px;
+  max-height: 132px;
+  padding: 10px 12px;
+  border: 1px solid var(--cube-border);
+  border-radius: 12px;
+  background: var(--cube-surface-sunken);
+  color: var(--cube-text);
+  font-size: 12.5px;
+  line-height: 1.5;
+  transition: border-color 0.15s;
+}
+
+.cube-ui .composer textarea:focus {
+  border-color: color-mix(in oklab, var(--cube-accent) 60%, transparent);
+}
+
+.cube-ui .composer textarea::placeholder {
+  color: var(--cube-text-caption);
+}
+
+.cube-ui .send {
+  align-self: flex-end;
+  height: 42px;
+  padding: 0 18px;
+  border: 1px solid color-mix(in oklab, var(--cube-accent) 40%, transparent);
+  border-radius: 12px;
+  background: var(--dsw-alias-button-info-fill);
+  color: var(--cube-text-on-accent);
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.cube-ui .send:hover {
+  background: var(--dsw-alias-button-info-hover);
+}
+
+/* conversation text stays selectable even though the stage disables it */
+.cube-ui .conv,
+.cube-ui .conv * {
+  user-select: text;
+}
+
+.cube-ui .conv-head,
+.cube-ui .conv-head * {
+  user-select: none;
+}
+
+/* --------------------------------------------------------------------------
+   7. HUD / pager
+   -------------------------------------------------------------------------- */
+
+.cube-ui .hud {
+  position: absolute;
+  left: 50%;
+  bottom: 16px;
+  transform: translateX(-50%);
+  z-index: 4;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 7px;
+  pointer-events: none;
+}
+
+.cube-ui .hud > * {
+  pointer-events: auto;
+}
+
+.cube-ui .hud-front {
+  font-size: 10px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--cube-text-caption);
+}
+
+.cube-ui .hud-hint {
+  font-size: 10.5px;
+  color: var(--cube-text-caption);
+  opacity: 0.85;
+}
+
+.cube-ui .pager {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 6px;
+  border: 1px solid var(--cube-border);
+  border-radius: 999px;
+  background: color-mix(in oklab, var(--dsw-alias-bg-layer-2) 84%, transparent);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+}
+
+.cube-ui .pager button {
+  width: 26px;
+  height: 26px;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--cube-text-dim);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.cube-ui .pager button:hover {
+  background: var(--cube-hover-active);
+  color: var(--cube-text);
+}
+
+.cube-ui .pager > span {
+  padding: 0 6px;
+  font-size: 11px;
+  color: var(--cube-text-dim);
+  letter-spacing: 0.02em;
+}
+
+/* --------------------------------------------------------------------------
+   8. Shared small button
+   -------------------------------------------------------------------------- */
+
+.cube-ui .ghost-btn,
+.cube-ui-overlay .ghost-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border-radius: 9px;
+  border: 1px solid var(--cube-border);
+  background: var(--cube-hover);
+  color: var(--cube-text-dim);
+  font-size: 11.5px;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+
+.cube-ui .ghost-btn:hover,
+.cube-ui-overlay .ghost-btn:hover {
+  background: var(--cube-accent-soft);
+  border-color: var(--cube-border-accent);
+  color: var(--cube-text);
+}
+
+/* --------------------------------------------------------------------------
+   9. Overlay: rail (standard-sidebar collapsed placeholder)
+   -------------------------------------------------------------------------- */
+
+.cube-ui-overlay .rail {
+  position: fixed;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 56px;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 14px 0;
+  background: color-mix(in oklab, var(--dsw-alias-bg-base) 72%, transparent);
+  border-right: 1px solid var(--cube-border-soft);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+}
+
+.cube-ui-overlay .rail-brand {
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  margin-bottom: 10px;
+  border-radius: 10px;
+  color: var(--dsw-alias-brand-primary);
+  font-size: 17px;
+  background: linear-gradient(150deg,
+    var(--cube-accent-soft),
+    color-mix(in oklab, var(--cube-accent-2) 14%, transparent));
+  border: 1px solid var(--cube-accent-line);
+}
+
+.cube-ui-overlay .rail-btn {
+  width: 38px;
+  height: 38px;
+  display: grid;
+  place-items: center;
+  border: 1px solid transparent;
+  border-radius: 11px;
+  background: transparent;
+  color: var(--cube-text-dim);
+  font-size: 16px;
+  cursor: pointer;
+  transition: background 0.18s, color 0.18s, border-color 0.18s;
+}
+
+.cube-ui-overlay .rail-btn:hover {
+  background: var(--cube-hover);
+  color: var(--cube-text);
+}
+
+.cube-ui-overlay .rail-btn.active {
+  background: var(--cube-accent-soft);
+  color: var(--cube-text);
+  border-color: var(--cube-accent-line);
+}
+
+.cube-ui-overlay .rail-spacer {
+  flex: 1;
+}
+
+/* expanded placeholder panel */
+.cube-ui-overlay .rail-panel {
+  position: fixed;
+  left: 56px;
+  top: 0;
+  bottom: 0;
+  width: 300px;
+  z-index: 2;
+  padding: 22px 20px;
+  overflow: auto;
+  background: color-mix(in oklab, var(--dsw-alias-bg-layer-1) 94%, transparent);
+  border-right: 1px solid var(--cube-border);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+  transform: translateX(-104%);
+  transition: transform 0.28s var(--cube-ease);
+}
+
+.cube-ui-overlay .rail-panel.open {
+  transform: translateX(0);
+}
+
+.cube-ui-overlay .rail-panel h3 {
+  margin: 0 0 4px;
+  font-size: 13px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--cube-text-dim);
+}
+
+.cube-ui-overlay .rail-panel .rp-sub {
+  margin: 0 0 16px;
+  font-size: 12px;
+  color: var(--cube-text-caption);
+  line-height: 1.6;
+}
+
+.cube-ui-overlay .rp-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 11px 12px;
+  margin-bottom: 8px;
+  border: 1px solid var(--cube-border-soft);
+  border-radius: 12px;
+  background: var(--cube-hover);
+  font-size: 12.5px;
+  color: var(--cube-text);
+}
+
+.cube-ui-overlay .rp-row .rp-ico {
+  color: var(--cube-text-dim);
+}
+
+.cube-ui-overlay .rp-row .rp-meta {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--cube-text-caption);
+}
+
+/* --------------------------------------------------------------------------
+   10. Overlay: brand mark
+   -------------------------------------------------------------------------- */
+
+.cube-ui-overlay .brand {
+  position: fixed;
+  top: 20px;
+  left: 74px;
+  z-index: 7;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  pointer-events: none;
+}
+
+.cube-ui-overlay .brand .brand-mark {
+  width: 26px;
+  height: 26px;
+  display: grid;
+  place-items: center;
+  border-radius: 8px;
+  font-size: 13px;
+  color: var(--dsw-alias-brand-primary);
+  background: linear-gradient(150deg,
+    var(--cube-accent-soft),
+    color-mix(in oklab, var(--cube-accent-2) 18%, transparent));
+  border: 1px solid var(--cube-accent-line);
+}
+
+.cube-ui-overlay .brand .brand-text {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.25;
+}
+
+.cube-ui-overlay .brand .brand-title {
+  font-size: 12px;
+  letter-spacing: 0.14em;
+  color: var(--dsw-alias-brand-primary);
+}
+
+.cube-ui-overlay .brand .brand-sub {
+  font-size: 10.5px;
+  letter-spacing: 0.06em;
+  color: var(--cube-text-caption);
+}
+
+/* --------------------------------------------------------------------------
+   11. Overlay: diamond navigation (top-right)
+   -------------------------------------------------------------------------- */
+
+.cube-ui-overlay .diamond {
+  position: fixed;
+  top: 22px;
+  right: 22px;
+  width: 132px;
+  height: 132px;
+  z-index: 5;
+}
+
+.cube-ui-overlay .diamond-shape {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  grid-template-rows: 1fr 1fr;
+  gap: 2px;
+  transform: rotate(45deg);
+  border-radius: 13px;
+  overflow: hidden;
+  border: 1px solid var(--cube-border-strong);
+  box-shadow: var(--cube-shadow),
+    0 14px 34px -18px color-mix(in srgb, #000 22%, transparent);
+  background: var(--cube-border);
+}
+
+.cube-ui-overlay .dq {
+  display: grid;
+  place-items: center;
+  border: none;
+  background: var(--dsw-alias-bg-layer-2);
+  color: var(--cube-text-dim);
+  font-size: 17px;
+  cursor: pointer;
+  transition: background 0.18s, color 0.18s;
+}
+
+.cube-ui-overlay .dq > span {
+  display: block;
+  transform: rotate(-45deg);
+  line-height: 1;
+}
+
+.cube-ui-overlay .dq:hover,
+.cube-ui-overlay .dq:focus-visible {
+  background: linear-gradient(150deg,
+    color-mix(in oklab, var(--cube-accent) 34%, transparent),
+    color-mix(in oklab, var(--cube-accent-2) 26%, transparent));
+  color: var(--cube-text);
+}
+
+/* --------------------------------------------------------------------------
+   12. Overlay: hover tip
+   -------------------------------------------------------------------------- */
+
+.cube-ui-overlay .tip {
+  position: fixed;
+  z-index: 20;
+  padding: 6px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--cube-border-strong);
+  background: var(--dsw-alias-tooltip-bg);
+  color: var(--dsw-alias-toast-label);
+  font-size: 11.5px;
+  white-space: nowrap;
+  pointer-events: none;
+  opacity: 0;
+  transform: translate(-100%, -50%);
+  transition: opacity 0.15s;
+}
+
+.cube-ui-overlay .tip.show {
+  opacity: 1;
+}
+
+/* --------------------------------------------------------------------------
+   13. Overlay: dock (settings / plugin launcher, bottom-left)
+   -------------------------------------------------------------------------- */
+
+.cube-ui-overlay .dock {
+  position: fixed;
+  left: 72px;
+  bottom: 16px;
+  z-index: 6;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  align-items: flex-start;
+}
+
+.cube-ui-overlay .dock-panel {
+  width: 268px;
+  max-height: min(430px, 54vh);
+  overflow: auto;
+  padding: 12px;
+  border: 1px solid var(--cube-border-strong);
+  border-radius: 16px;
+  background: var(--cube-surface-raised);
+  box-shadow: var(--cube-shadow),
+    0 18px 48px -20px color-mix(in srgb, #000 22%, transparent);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+  display: none;
+}
+
+.cube-ui-overlay .dock.open .dock-panel {
+  display: block;
+  animation: cube-dock-in 0.22s var(--cube-ease);
+}
+
+.cube-ui-overlay .dock-section + .dock-section {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--cube-border-soft);
+}
+
+.cube-ui-overlay .dock-section h3 {
+  margin: 0 0 8px;
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--cube-text-caption);
+}
+
+.cube-ui-overlay .dock-item {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 9px 10px;
+  border: 1px solid transparent;
+  border-radius: 9px;
+  background: transparent;
+  color: var(--cube-text);
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.cube-ui-overlay .dock-item:hover {
+  background: var(--cube-hover);
+  border-color: var(--cube-border);
+}
+
+.cube-ui-overlay .dock-item .di-ico {
+  color: var(--cube-text-dim);
+  width: 16px;
+  text-align: center;
+}
+
+.cube-ui-overlay .dock-item .di-meta {
+  margin-left: auto;
+  font-size: 10.5px;
+  color: var(--cube-text-caption);
+}
+
+.cube-ui-overlay .dock-toggle {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 9px 14px 9px 11px;
+  border: 1px solid var(--cube-border-strong);
+  border-radius: 999px;
+  background: color-mix(in oklab, var(--dsw-alias-bg-layer-2) 88%, transparent);
+  color: var(--cube-text);
+  font-size: 12px;
+  cursor: pointer;
+  box-shadow: var(--cube-shadow-soft);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  transition: border-color 0.18s, background 0.18s;
+}
+
+.cube-ui-overlay .dock-toggle:hover {
+  border-color: var(--cube-border-accent);
+  background: color-mix(in oklab, var(--dsw-alias-bg-layer-2) 96%, transparent);
+}
+
+.cube-ui-overlay .dock-toggle .dock-caret {
+  color: var(--cube-text-caption);
+  transition: transform 0.25s;
+}
+
+.cube-ui-overlay .dock.open .dock-toggle .dock-caret {
+  transform: rotate(180deg);
+}
+
+/* --------------------------------------------------------------------------
+   14. Overlay: modal
+   -------------------------------------------------------------------------- */
+
+.cube-ui-overlay .modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 8;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: var(--dsw-alias-bg-mask-1);
+  backdrop-filter: blur(5px);
+  -webkit-backdrop-filter: blur(5px);
+}
+
+.cube-ui-overlay .modal-backdrop[hidden] {
+  display: none;
+}
+
+.cube-ui-overlay .modal {
+  width: min(560px, 100%);
+  max-height: min(78vh, 720px);
+  overflow: auto;
+  border: 1px solid var(--cube-border-strong);
+  border-radius: 20px;
+  background: linear-gradient(168deg,
+    var(--dsw-alias-bg-layer-2),
+    var(--dsw-alias-bg-layer-1));
+  box-shadow: var(--cube-shadow),
+    0 22px 60px -24px color-mix(in srgb, #000 26%, transparent);
+  padding: 20px 22px 22px;
+  animation: cube-modal-in 0.22s var(--cube-ease);
+}
+
+.cube-ui-overlay .modal-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin-bottom: 6px;
+}
+
+.cube-ui-overlay .modal-head h2 {
+  margin: 0;
+  font-size: 15.5px;
+  font-weight: 600;
+}
+
+.cube-ui-overlay .modal-sub {
+  margin: 0 0 16px;
+  font-size: 11.5px;
+  color: var(--cube-text-caption);
+  line-height: 1.7;
+}
+
+.cube-ui-overlay .modal-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 11px 12px;
+  margin-bottom: 8px;
+  border: 1px solid var(--cube-border-soft);
+  border-radius: 12px;
+  background: var(--cube-hover);
+  font-size: 12.5px;
+}
+
+.cube-ui-overlay .modal-row .mr-desc {
+  margin-left: auto;
+  font-size: 10.5px;
+  color: var(--cube-text-caption);
+}
+
+.cube-ui-overlay .modal-row .mr-note {
+  font-size: 10.5px;
+  color: var(--cube-text-caption);
+}
+
+.cube-ui-overlay .modal-note {
+  margin-top: 14px;
+  padding: 10px 12px;
+  border-left: 2px solid color-mix(in oklab, var(--cube-accent) 50%, transparent);
+  border-radius: 0 8px 8px 0;
+  background: color-mix(in oklab, var(--cube-accent) 6%, transparent);
+  font-size: 11px;
+  line-height: 1.7;
+  color: var(--cube-text-dim);
+}
+
+.cube-ui-overlay .toggle {
+  position: relative;
+  width: 34px;
+  height: 20px;
+  flex: none;
+  border-radius: 999px;
+  background: color-mix(in oklab, var(--cube-text-faint) 35%, transparent);
+  border: 1px solid var(--cube-border);
+}
+
+.cube-ui-overlay .toggle::after {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--dsw-alias-switch-thumb);
+  transition: transform 0.2s, background 0.2s;
+}
+
+.cube-ui-overlay .toggle.on {
+  background: color-mix(in oklab, var(--cube-ok) 30%, transparent);
+  border-color: color-mix(in oklab, var(--cube-ok) 40%, transparent);
+}
+
+.cube-ui-overlay .toggle.on::after {
+  transform: translateX(14px);
+  background: var(--cube-ok);
+}
+
+/* --------------------------------------------------------------------------
+   15. Scrollbars (theme-derived, thin)
+   -------------------------------------------------------------------------- */
+
+.cube-ui .sessions,
+.cube-ui .conv-body,
+.cube-ui .session-menu,
+.cube-ui-overlay .dock-panel,
+.cube-ui-overlay .rail-panel,
+.cube-ui-overlay .modal {
+  scrollbar-width: thin;
+  scrollbar-color: var(--cube-scroll-thumb) transparent;
+}
+
+.cube-ui .sessions::-webkit-scrollbar,
+.cube-ui .conv-body::-webkit-scrollbar,
+.cube-ui .session-menu::-webkit-scrollbar,
+.cube-ui-overlay .dock-panel::-webkit-scrollbar,
+.cube-ui-overlay .rail-panel::-webkit-scrollbar,
+.cube-ui-overlay .modal::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+.cube-ui .sessions::-webkit-scrollbar-track,
+.cube-ui .conv-body::-webkit-scrollbar-track,
+.cube-ui .session-menu::-webkit-scrollbar-track,
+.cube-ui-overlay .dock-panel::-webkit-scrollbar-track,
+.cube-ui-overlay .rail-panel::-webkit-scrollbar-track,
+.cube-ui-overlay .modal::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.cube-ui .sessions::-webkit-scrollbar-thumb,
+.cube-ui .conv-body::-webkit-scrollbar-thumb,
+.cube-ui .session-menu::-webkit-scrollbar-thumb,
+.cube-ui-overlay .dock-panel::-webkit-scrollbar-thumb,
+.cube-ui-overlay .rail-panel::-webkit-scrollbar-thumb,
+.cube-ui-overlay .modal::-webkit-scrollbar-thumb {
+  background: var(--cube-scroll-thumb);
+  border-radius: 999px;
+}
+
+.cube-ui .sessions::-webkit-scrollbar-thumb:hover,
+.cube-ui .conv-body::-webkit-scrollbar-thumb:hover,
+.cube-ui .session-menu::-webkit-scrollbar-thumb:hover,
+.cube-ui-overlay .dock-panel::-webkit-scrollbar-thumb:hover,
+.cube-ui-overlay .rail-panel::-webkit-scrollbar-thumb:hover,
+.cube-ui-overlay .modal::-webkit-scrollbar-thumb:hover {
+  background: var(--cube-scroll-thumb-hover);
+}
+
+/* --------------------------------------------------------------------------
+   16. Keyframes (prefixed: @keyframes are global by spec)
+   -------------------------------------------------------------------------- */
+
+@keyframes cube-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.45; }
+}
+
+@keyframes cube-bounce {
+  0%, 60%, 100% { transform: translateY(0); opacity: 0.4; }
+  30% { transform: translateY(-3px); opacity: 1; }
+}
+
+@keyframes cube-dock-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: none; }
+}
+
+@keyframes cube-modal-in {
+  from { opacity: 0; transform: scale(0.98) translateY(8px); }
+  to { opacity: 1; transform: none; }
+}
+
+/* --------------------------------------------------------------------------
+   17. Container queries — keyed to the main panel, not the viewport
+   -------------------------------------------------------------------------- */
+
+@container cube (max-width: 760px) {
+  .cube-ui .cube-shell {
+    --cube-size: 420px;
+  }
+
+  .cube-ui .conv {
+    width: min(680px, 94cqw);
+    height: min(560px, 66%);
+    border-radius: 16px;
+  }
+
+  .cube-ui .hud {
+    gap: 5px;
+  }
+
+  .cube-ui .hud-hint {
+    font-size: 10px;
+  }
+
+  .cube-ui .pager button {
+    width: 24px;
+    height: 24px;
+  }
+
+  .cube-ui .hud-front {
+    font-size: 9.5px;
+    letter-spacing: 0.12em;
+  }
+
+  .cube-ui-overlay .diamond {
+    top: 16px;
+    right: 16px;
+    width: 104px;
+    height: 104px;
+  }
+
+  .cube-ui-overlay .dock {
+    left: 64px;
+  }
+
+  .cube-ui-overlay .dock-panel {
+    width: min(268px, 84cqw);
+  }
+}
+
+/* --------------------------------------------------------------------------
+   18. Viewport breakpoints (kept from the mock as a fallback)
+   -------------------------------------------------------------------------- */
+
+@media (max-width: 980px) {
+  .cube-ui .cube-shell {
+    --cube-size: 420px;
+  }
+
+  .cube-ui .conv {
+    width: min(720px, 78vw);
+  }
+
+  .cube-ui-overlay .brand-sub {
+    display: none;
+  }
+
+  .cube-ui-overlay .dock {
+    left: 64px;
+  }
+}
+
+@media (max-width: 640px) {
+  .cube-ui .cube-shell {
+    --cube-size: 340px;
+  }
+
+  .cube-ui .conv {
+    width: min(720px, 92vw);
+    height: min(600px, 68vh);
+  }
+
+  .cube-ui-overlay .diamond {
+    width: 104px;
+    height: 104px;
+  }
+
+  .cube-ui-overlay .rail-panel {
+    width: 82vw;
+  }
+}
+
+/* --------------------------------------------------------------------------
+   19. Motion preferences / screenshot helper
+   -------------------------------------------------------------------------- */
+
+@media (prefers-reduced-motion: reduce) {
+  .cube-ui *,
+  .cube-ui *::before,
+  .cube-ui *::after,
+  .cube-ui-overlay *,
+  .cube-ui-overlay *::before,
+  .cube-ui-overlay *::after {
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* Phase 0 screenshot helper — harmless in production, kept for parity */
+.cube-ui.no-anim *,
+.cube-ui.no-anim *::before,
+.cube-ui.no-anim *::after,
+.cube-ui-overlay.no-anim *,
+.cube-ui-overlay.no-anim *::before,
+.cube-ui-overlay.no-anim *::after {
+  transition: none !important;
+  animation: none !important;
+}
+
+/* --------------------------------------------------------------------------
+   15. Hosted conversation (client-plugin integration)
+
+   The cube does not rebuild chat: the shipped Conversation content and
+   composer are mounted through the official `conversation.content` factory in
+   its `embedded` variant. That subtree owns its own scrollport and composer
+   padding, so the seat must add neither a second scroll area nor padding.
+   -------------------------------------------------------------------------- */
+
+.cube-ui .conv-body.embedded {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+  padding: 0;
+}
+
+.cube-ui .conv-body.embedded > [data-conversation-content] {
+  flex: 1 1 auto;
+  min-height: 0;
+  height: 100%;
+}
+
+/* The cube reads its panel box, not the viewport: the host wrapper is a flex
+   child of the frame's main panel and must not collapse. */
+.cube-ui-host {
+  min-height: 0;
+}
+
+/* --------------------------------------------------------------------------
+   16. Front-face conversation — the cube face IS the session surface
+
+   Rotating the cube carries the conversation out of view with its Workspace;
+   the next face brings its own Session surface in. The face is a cube wall, so
+   inside mode keeps it upright (rx = 0 in the client) and nearly flat.
+   -------------------------------------------------------------------------- */
+
+.cube-ui .face-summary { display: none; }
+
+.cube-ui .face.hosting,
+.cube-ui .stage.inside .face.hosting,
+.cube-ui[data-mode="inside"] .face.hosting {
+  background: linear-gradient(168deg,
+    color-mix(in oklab, var(--dsw-alias-bg-layer-2) 97%, transparent),
+    color-mix(in oklab, var(--dsw-alias-bg-base) 98%, transparent));
+  border-color: var(--cube-border-strong);
+  border-top-color: var(--cube-border-accent);
+}
+
+.cube-ui .face.hosting .face-inner,
+.cube-ui .face.hosting .face-room {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.cube-ui .face-conv {
+  position: absolute;
+  /* Slack around the surface: the conversation is inset from the cube wall so
+     the face keeps a visible frame, and gestures have room to land. */
+  inset: 18px;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+  gap: 0;
+  border-radius: 16px;
+  /* The stage disables touch gestures for rotation; the conversation opts back
+     into vertical panning so touch/momentum scrolling keeps working. */
+  touch-action: pan-y;
+  overscroll-behavior: contain;
+}
+
+.cube-ui .face-conv .conv-head {
+  flex: none;
+  padding: 8px 10px;
+  border: 1px solid var(--cube-border-strong);
+  border-bottom: 0;
+  border-radius: 12px 12px 0 0;
+  background: color-mix(in oklab, var(--dsw-alias-bg-layer-2) 92%, transparent);
+}
+
+.cube-ui .face-conv .conv-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  padding: 10px;
+  border: 1px solid var(--cube-border-strong);
+  border-top: 0;
+  border-radius: 0 0 12px 12px;
+  background: color-mix(in oklab, var(--dsw-alias-bg-base) 94%, transparent);
+}
+
+.cube-ui .face-conv .conv-body.embedded {
+  padding: 0 2px 2px;
+}
+
+.cube-ui .stage.inside,
+.cube-ui[data-mode="inside"] .stage { perspective: 4200px; }
+
+.cube-ui .stage.inside .cube-shell,
+.cube-ui[data-mode="inside"] .cube-shell { transform: none; }
+
+/* --------------------------------------------------------------------------
+   17. Workspace identity at the top-left (replaces the old bottom label)
+   -------------------------------------------------------------------------- */
+
+.cube-ui .stage-title {
+  position: absolute;
+  top: 14px;
+  left: 18px;
+  z-index: 5;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  max-width: 46cqw;
+  pointer-events: none;
+}
+
+.cube-ui .st-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12.5px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  color: var(--cube-text);
+}
+
+.cube-ui .st-meta {
+  flex: none;
+  font-size: 10px;
+  color: var(--cube-text-caption);
+}
+
+/* --------------------------------------------------------------------------
+   18. Rotating: faces drop to identity detail
+
+   While the cube is dragged or snapping, every face shows only what is needed
+   to recognize the Workspace (title + session count); lists, paths and the
+   embedded conversation return when the cube settles.
+   -------------------------------------------------------------------------- */
+
+.cube-ui[data-rotating="true"] .face .face-path,
+.cube-ui[data-rotating="true"] .face .sessions,
+.cube-ui[data-rotating="true"] .face .face-foot,
+.cube-ui[data-rotating="true"] .face .face-room,
+.cube-ui[data-rotating="true"] .face .face-conv {
+  display: none;
+}
+
+.cube-ui[data-rotating="true"] .face .face-inner {
+  justify-content: center;
+  align-items: center;
+  gap: 4px;
+  padding: 12px;
+  text-align: center;
+  opacity: 1;
+  pointer-events: none;
+}
+
+.cube-ui[data-rotating="true"] .face .face-head {
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+}
+
+.cube-ui[data-rotating="true"] .face .face-idx { display: none; }
+.cube-ui[data-rotating="true"] .face .face-title {
+  font-size: 15px;
+  white-space: normal;
+  overflow: visible;
+}
+.cube-ui[data-rotating="true"] .face .face-summary {
+  display: block;
+  font-size: 10.5px;
+  color: var(--cube-text-caption);
+}
+
+/* --------------------------------------------------------------------------
+   19. Cube size pill (overlay, bottom-right) + title/hud adjustments
+
+   The pill scales the fitted cube between 60% and 160%; the conversation is
+   embedded in the front face, so it follows the same size. The choice is
+   remembered per browser.
+   -------------------------------------------------------------------------- */
+
+.cube-ui .stage-title {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+}
+
+.cube-ui .st-line {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  max-width: 100%;
+  min-width: 0;
+}
+
+.cube-ui .st-hint {
+  font-size: 10px;
+  color: var(--cube-text-caption);
+  opacity: 0.85;
+}
+
+/* Inside the cube the conversation owns the bottom of the surface. */
+.cube-ui[data-mode="inside"] .hud,
+.cube-ui .stage.inside ~ .hud {
+  display: none;
+}
+
+.cube-ui-overlay .size-pill {
+  position: fixed;
+  /* Kept clear of whale-chan-pet: its sprite is 210px wide with a 28px right
+     margin, and its summon button sits at the very bottom-right corner. */
+  right: calc(210px + 28px + 6px);
+  bottom: 18px;
+  z-index: 6;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 3px 5px;
+  border: 1px solid var(--cube-border-strong);
+  border-radius: 999px;
+  background: var(--cube-surface-raised);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+}
+
+.cube-ui-overlay .size-pill button {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--cube-text-dim);
+  cursor: pointer;
+}
+
+.cube-ui-overlay .size-pill button:hover {
+  background: var(--cube-hover-active);
+  color: var(--cube-text);
+}
+
+.cube-ui-overlay .size-pill .ico svg { width: 13px; height: 13px; }
+
+.cube-ui-overlay .size-pill > span {
+  min-width: 3.1em;
+  text-align: center;
+  font-size: 10.5px;
+  letter-spacing: 0.02em;
+  color: var(--cube-text-dim);
+}
+
+/* The cube rests face-on; a longer perspective keeps the front face close to
+   its designed size instead of magnifying it with translateZ. */
+.cube-ui .stage { perspective: 3400px; }
+
+/* Touch devices: the stage keeps horizontal drag for rotation, while vertical
+   gestures are left to the conversation's scrollport (the earlier
+   touch-action:none on .stage blocked touch scrolling inside the face). */
+.cube-ui .stage { touch-action: pan-y; }
+
+/* --------------------------------------------------------------------------
+   20. Above the frame overlay + opaque conversation surfaces
+
+   The cube is raised above the frame's overlay layer (abyss-whale's atmosphere
+   and similar frame art live there and were painting over the conversation).
+   The conversation surfaces themselves become opaque so text always reads.
+   -------------------------------------------------------------------------- */
+
+.cube-ui {
+  z-index: 21;
+}
+
+.cube-ui .face.hosting,
+.cube-ui .stage.inside .face.hosting,
+.cube-ui[data-mode="inside"] .face.hosting {
+  background: linear-gradient(168deg,
+    var(--dsw-alias-bg-layer-2),
+    var(--dsw-alias-bg-base));
+}
+
+.cube-ui .face-conv .conv-head {
+  background: var(--dsw-alias-bg-layer-2);
+}
+
+.cube-ui .face-conv .conv-body,
+.cube-ui .face-conv .conv-body.embedded {
+  background: var(--dsw-alias-bg-base);
+}
