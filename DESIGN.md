@@ -233,4 +233,4 @@ Phase 0 モックから、実 GUI で確認しながら以下を変更した。
 
 | 操作範囲 | 回転ドラッグは立方体の面（`.cube`）上のみ。周囲の余白では回転しない。カーソルは立方体上だけ `grab`。 |
 | 会話と選択 | 会話面は回転ドラッグの対象外（ヘッダ含む）。`.face-conv` のみ `user-select: text` に戻し、範囲選択・コピーを許可。 |
-| サイズピル位置 | whale-chan-pet（スプライト 210px + 右余白 28px + 召喚ボタン）を避けて右から 244px へ。 |
+| サイズピル位置 | [whale-chan-pet](https://github.com/Phrixos-git/dsh-whale-chan-pet)（スプライト 210px + 右余白 28px + 召喚ボタン）を避けて右から 244px へ。 |

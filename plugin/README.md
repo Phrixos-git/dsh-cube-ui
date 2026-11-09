@@ -26,9 +26,11 @@ DSH 0.2.2-rc.1 Web GUI 用のクライアントプラグインです。メイン
 `client.js` はコミット済みなので、通常はビルド不要です。ソースを変更したときだけ実行します。
 
 ```sh
-cd ~/Documents/deepseek-harness/creator/cube-ui/plugin
+cd <repo>/plugin
 node build.mjs
 ```
+
+（`<repo>` はこのリポジトリのルート、`<workspace>` は任意の作業ディレクトリを表すプレースホルダです。）
 
 - 依存パッケージはありません（素の Node.js。esbuild / tsdown 等は不要）。
 - `src/client.template.js` と `src/styles.css` は Lead が管理します。
@@ -42,12 +44,12 @@ node build.mjs
 
 推奨（`plugin_manager` ツール。UI のプラグイン管理と同じ処理）:
 
-- `install_bundle` に絶対パス `~/Documents/deepseek-harness/creator/cube-ui/plugin` を渡す。
+- `install_bundle` にこのリポジトリの `plugin` ディレクトリ（`<repo>/plugin`）を渡す。
 
 手動で行う場合（CLI は pnpm の薄いラッパーです）:
 
 ```sh
-dsh plugin --profile web add ~/Documents/deepseek-harness/creator/cube-ui/plugin
+dsh plugin --profile web add <repo>/plugin
 ```
 
 このパス指定は pnpm の `link:` 依存になり、プロファイルの `node_modules/@local/dsh-cube-ui` は
@@ -112,7 +114,7 @@ systemctl --user restart dsh-web.service
 このリポジトリの既存の退避先と命名に合わせる場合:
 
 ```sh
-cd ~/Documents/deepseek-harness/creator/backups
+cd <workspace>/backups
 cp ~/.dsh/profiles/web/package.json       "web-package.json.bak-$(date +%Y%m%d-%H%M%S)"
 cp ~/.dsh/profiles/web/pnpm-lock.yaml     "web-pnpm-lock.yaml.bak-$(date +%Y%m%d-%H%M%S)"
 cp ~/.dsh/profiles/web/cordis.patch.yml   "web-cordis.patch.yml.bak-$(date +%Y%m%d-%H%M%S)"
@@ -162,7 +164,7 @@ cp ~/.dsh/profiles/web/cordis.patch.yml   "web-cordis.patch.yml.bak-$(date +%Y%m
 - 標準の会話ヘッダ（右バー開閉・セッション操作・jobs 等の寄与）は置き換えのため出ない。右バーは現状サイドバー等から開く。
 - `dsh-experimental-session-inspector` は `main.conversation` の DOM を直接探すため、本プラグイン導入中は機能しない。
 - 設定モーダルは Web では `settings.open` ショートカットの合成イベントで開く。デスクトップ（Electron）では合成イベントが通らないため、折りたたみ済みサイドバーの設定ボタンを使う。
-- 他の `shell.overlay` 系プラグイン（whale-chan-pet 等）は立方体の上に重なって表示される。
+- 他の `shell.overlay` 系プラグイン（[whale-chan-pet](https://github.com/Phrixos-git/dsh-whale-chan-pet) 等）は立方体の上に重なって表示される。
 
 ### スクロールの扱い（2026-11 追記・改訂）
 
@@ -174,14 +176,14 @@ GPU 合成された 3D フェイスでは、ホイールのヒットテストが
 
 ### 可読性（2026-11 追記）
 
-- 立方体（`.cube-ui`）をフレームのオーバーレイ層（`z-index: 20`）より前面（`z-index: 21`）に上げ、`abyss-whale` などのオーバーレイ装飾が会話の文字に重ならないようにした。
+- 立方体（`.cube-ui`）をフレームのオーバーレイ層（`z-index: 20`）より前面（`z-index: 21`）に上げ、`example-plugin`（例示用の仮名）などのオーバーレイ装飾が会話の文字に重ならないようにした。
 - ダイヤモンド／ドック／ダイアログは立方体ルート内に描画し、同じ前面レイヤーで操作できる。
 - 会話面のヘッダ・本文の背景はテーマトークンそのまま（不透明）にし、透過による文字の読みにくさを解消。
-- これにより他の `shell.overlay` 系プラグイン（whale-chan-pet 等）は立方体の**背面**に入るため、立方体と重なる位置では隠れることがある。
+- これにより他の `shell.overlay` 系プラグイン（[whale-chan-pet](https://github.com/Phrixos-git/dsh-whale-chan-pet) 等）は立方体の**背面**に入るため、立方体と重なる位置では隠れることがある。
 
 ### 操作範囲と文字選択（2026-11 追記）
 
-- **サイズピルの位置**: 右下のまま、右端から `210px + 28px + 6px`（= 244px）へ移動。`whale-chan-pet` のスプライト幅（210px）と右余白（28px）、および隅の召喚ボタンと重ならないようにするため。
+- **サイズピルの位置**: 右下のまま、右端から `210px + 28px + 6px`（= 244px）へ移動。[whale-chan-pet](https://github.com/Phrixos-git/dsh-whale-chan-pet) のスプライト幅（210px）と右余白（28px）、および隅の召喚ボタンと重ならないようにするため。
 - **回転ドラッグは立方体の面の上だけ**: `.stage` 全体で受けていた `pointerdown` を、`target.closest('.cube')` が真のとき（= 実際にフェイスへ当たったとき）だけ回転開始に変更。立方体の周囲の余白では回転しない。カーソルも立方体上のみ `grab` / ドラッグ中 `grabbing`。
 - **会話面はドラッグ回転しない**: 会話パネル（`.face-conv`）内ではヘッダも含めて回転を開始しない。会話のドロップダウン・×・送信などは通常どおりクリックできる。
 - **会話の文字を選択できる**: `.stage` の `user-select: none` を会話面だけ `user-select: text` で解除（ヘッダとボタンは `none` のまま）。範囲選択・コピーが可能。

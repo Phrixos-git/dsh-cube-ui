@@ -1916,8 +1916,10 @@
 
 .cube-ui-overlay .size-pill {
   position: fixed;
-  /* Kept clear of whale-chan-pet: its sprite is 210px wide with a 28px right
-     margin, and its summon button sits at the very bottom-right corner. */
+  /* Kept clear of the overlay pet plugin (whale-chan-pet,
+     https://github.com/Phrixos-git/dsh-whale-chan-pet): its sprite is 210px
+     wide with a 28px right margin, and its summon button sits at the very
+     bottom-right corner. */
   right: calc(210px + 28px + 6px);
   bottom: 18px;
   z-index: 6;
@@ -1971,7 +1973,7 @@
 /* --------------------------------------------------------------------------
    20. Above the frame overlay + opaque conversation surfaces
 
-   The cube is raised above the frame's overlay layer (abyss-whale's atmosphere
+   The cube is raised above the frame's overlay layer (example-plugin's atmosphere
    and similar frame art live there and were painting over the conversation).
    The conversation surfaces themselves become opaque so text always reads.
    -------------------------------------------------------------------------- */

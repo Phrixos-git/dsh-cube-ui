@@ -33,8 +33,8 @@
 
 ### 1. クライアントプラグインの載せ方
 
-- この環境には同方式のプラグインが導入済み:
-  `~/Documents/deepseek-harness/creator/abyss-whale`（`package.json` の `dsh.bundle.patch` と
+- 同方式のプラグインが既に導入されている（以下 `example-plugin` は例示用の仮名）:
+  `<workspace>/example-plugin`（`package.json` の `dsh.bundle.patch` と
   `dsh.client`、`cordis.patch.yml`、`index.js`（ホスト側）、`client.js`（ブラウザ側））。
 - `client.js` は `window.__ModuleLoader__.load({ id, factory(require) { ... return { inject, apply } } })` 形式。
   `require('react')` と `ctx` サービスだけで書ける。ビルド工程なし。
@@ -112,7 +112,7 @@ z-index: 20; position: absolute; inset: 0; pointer-events: none;
 
 ## 推奨アーキテクチャ
 
-新規バンドル `@local/dsh-cube-ui` を作成する（`abyss-whale` と同じ構成）。
+新規バンドル `@local/dsh-cube-ui` を作成する（`example-plugin` と同じ構成）。
 
 - `shell.overlay` に「HUD」を登録:
   - 右上の 4 分割ひし形（新規セッション / プラグイン / 自動化タスク / その他）
@@ -177,7 +177,7 @@ Phase 0 を先に作ることで、DSH のプロファイルに触れずに操�
 
 ## 参考ファイル
 
-- プラグイン事例: `~/Documents/deepseek-harness/creator/abyss-whale/`
+- プラグイン事例: `<workspace>/example-plugin/`
 - レイアウト仕様: `~/.local/lib/node_modules/@deepseek-ai/dsh/node_modules/@deepseek-ai/dsh-client-ui-layout/`
 - レンダラー / スロット仕様: `.../dsh-client-ui-renderer/`
 - ワークスペース UI: `.../dsh-client-ui-workspace/`

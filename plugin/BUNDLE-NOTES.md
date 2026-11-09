@@ -22,6 +22,8 @@
 | `$NM` | `~/.local/lib/node_modules/@deepseek-ai/dsh/node_modules/@deepseek-ai` |
 | `$CLI` | `~/.local/lib/node_modules/@deepseek-ai/dsh` |
 | `$PROFILE` | `~/.dsh/profiles/web` |
+| `<repo>` | このリポジトリのルート |
+| `<workspace>` | 任意の作業ディレクトリ（バックアップの退避先など） |
 
 要約（先に結論）:
 
@@ -82,7 +84,7 @@
   パッケージ（tsdown で `lib/client.js` を生成しているもの）向けのメッセージで、外部バンドルには
   当てはまりません。外部バンドルは**ビルド済みファイルを同梱**する必要があります。
 
-したがって **`client.js` は手書きの単一ファイルで構いません**。前例 `abyss-whale/client.js`（約257KB、
+したがって **`client.js` は手書きの単一ファイルで構いません**。前例 `example-plugin/client.js`（例示用の仮名。約257KB、
 1ファイル、ビルド無し）がその実証です。本プラグインは CSS・ロケール・バージョンを埋め込むためだけに
 `build.mjs`（素の Node、依存ゼロ）を使っています。esbuild 等は不要です。
 
@@ -212,7 +214,7 @@ window.__ModuleLoader__.load({
 
 - これは Loader（Cordis）のサービス注入です。ホスト側プラグインの `inject` と同じ意味で、
   本プラグインは `const inject = ['slots', 'locale', 'layout', 'uiWorkspace', 'shortcuts'];`
-  （`src/client.template.js` の該当行。参考: `abyss-whale/client.js:847` は
+  （`src/client.template.js` の該当行。参考: `example-plugin/client.js:847` は
   `['theme', 'slots', 'locale', 'configForms']`）。
 - **誤った場合の挙動**: エントリは `pending`（待機）のままになり、ブート監査が
   `${name}: pending (waiting for service: ...)` を列挙して失敗します（[SHELL] 検索語 `function KZ` の
@@ -287,8 +289,8 @@ window.__ModuleLoader__.load({
   （`auditStartupEntries`、[WEB]:1-40 の import 参照）で起動が失敗します。
 - 同時に、この行が **client-modules の走査対象**（パッケージを解決する入口）になります（[M]:783-800）。
 
-`abyss-whale/index.js` の役割は「パッケージをクライアントモジュールグラフに発見させるための
-何もしないホスト行」です（`abyss-whale/index.js:1-15`、`export function apply() {}` のみ）。
+`example-plugin/index.js` の役割は「パッケージをクライアントモジュールグラフに発見させるための
+何もしないホスト行」です（`example-plugin/index.js:1-15`、`export function apply() {}` のみ）。
 本プラグインの `index.js` も同じです（既に Lead が作成済み）。
 
 最小実装:
@@ -337,7 +339,7 @@ config をブラウザへ渡したい場合の唯一の素直な方法は、ホ�
 3. **バンドルごと無効化**: `dsh.profile.bundles` から `@local/dsh-cube-ui` を外す
    （`plugin_manager.setBundleEnabled(name,false)` の実体、[PM]:3048-3074）。
 4. **ブラウザ内のソフトスイッチ**: `localStorage` 等のフラグで描画を止める方法は「コードは動く」ため
-   完全な無効化ではありません（abyss-whale のテーマ切替はこの方式）。
+   完全な無効化ではありません（example-plugin のテーマ切替はこの方式）。
 
 環境変数によるスイッチは DSH に用意されていません（必要ならホスト index.js で `process.env` を読む）。
 
@@ -354,7 +356,7 @@ config をブラウザへ渡したい場合の唯一の素直な方法は、ホ�
 2. 既にプロファイル依存にある場合は `already-installed` で拒否（HMR 有効時、[PM]:2733）。
 3. **`pnpm add <spec>` をプロファイルディレクトリで実行**（[PM]:2801-2806、`runProfilePnpm`）。
    - ローカルディレクトリを渡すと pnpm は **`link:` 依存**にします（コピーしません）。
-     既存プロファイルの `"@local/dsh-abyss-whale": "link:~/.../abyss-whale"` が実例。
+     既存プロファイルの `"@local/dsh-example-plugin": "link:~/.../example-plugin"` が実例。
      依存値の解釈は [PM]:223-238 `dependencySpec`、パス解決は [PM]:388-393 `anchorPathSpec`。
    - 書き換わるファイル: `$PROFILE/package.json`（dependencies）、`$PROFILE/pnpm-lock.yaml`、
      `$PROFILE/node_modules/`（`@local/dsh-cube-ui` はソースディレクトリへの symlink）。
@@ -398,7 +400,7 @@ CLI 経路でも pnpm 実行後に **`dsh.bundle` を持つ新規依存を `dsh.
 （[PM-OP]:97-137 `reconcile`、呼び出しは [PM]:576 付近）。互換性検査と不適合時のロールバックも
 同じです（[PM]:820-855）。
 
-- 導入: `dsh plugin --profile web add ~/Documents/deepseek-harness/creator/cube-ui/plugin`
+- 導入: `dsh plugin --profile web add <repo>/plugin`
 - 削除: `dsh plugin --profile web remove @local/dsh-cube-ui`（ただし `dsh.profile.bundles` は
   自動では消えないので、`plugin_manager.removeBundle` を使うか手で外す）
 - `dsh plugin --profile web list` 等は pnpm へそのまま渡ります。
@@ -469,12 +471,12 @@ curl -sS -I --max-time 5 http://127.0.0.1:3080/
 | `~/.dsh/profiles/web/cordis.yml` | 起動時に再生成されるが念のため |
 | `~/.dsh/profiles/web/node_modules/` | symlink 構成。`pnpm install --frozen-lockfile` で復元可能 |
 
-退避先の慣例（既存の運用に合わせる）: `~/Documents/deepseek-harness/creator/backups/`
+退避先の慣例（既存の運用に合わせる）: `<workspace>/backups/`
 に `web-<name>.bak-YYYYMMDD-HHMMSS` で保存（既存例: `web-package.json.bak-20261108-213848`、
 `web-cordis.patch.yml.bak-20261108-213848`）。
 
 ```sh
-cd ~/Documents/deepseek-harness/creator/backups
+cd <workspace>/backups
 cp ~/.dsh/profiles/web/package.json     "web-package.json.bak-$(date +%Y%m%d-%H%M%S)"
 cp ~/.dsh/profiles/web/pnpm-lock.yaml   "web-pnpm-lock.yaml.bak-$(date +%Y%m%d-%H%M%S)"
 cp ~/.dsh/profiles/web/cordis.patch.yml "web-cordis.patch.yml.bak-$(date +%Y%m%d-%H%M%S)"
@@ -490,9 +492,9 @@ cp ~/.dsh/profiles/web/cordis.patch.yml "web-cordis.patch.yml.bak-$(date +%Y%m%d
    `dsh plugin --profile web remove @local/dsh-cube-ui`。
 4. 完全復元:
    ```sh
-   cp ~/Documents/deepseek-harness/creator/backups/web-package.json.bak-<ts>     ~/.dsh/profiles/web/package.json
-   cp ~/Documents/deepseek-harness/creator/backups/web-pnpm-lock.yaml.bak-<ts>   ~/.dsh/profiles/web/pnpm-lock.yaml
-   cp ~/Documents/deepseek-harness/creator/backups/web-cordis.patch.yml.bak-<ts> ~/.dsh/profiles/web/cordis.patch.yml
+   cp <workspace>/backups/web-package.json.bak-<ts>     ~/.dsh/profiles/web/package.json
+   cp <workspace>/backups/web-pnpm-lock.yaml.bak-<ts>   ~/.dsh/profiles/web/pnpm-lock.yaml
+   cp <workspace>/backups/web-cordis.patch.yml.bak-<ts> ~/.dsh/profiles/web/cordis.patch.yml
    cd ~/.dsh/profiles/web && pnpm install --frozen-lockfile
    ```
 5. 反映されない場合のみ `systemctl --user restart dsh-web.service`。

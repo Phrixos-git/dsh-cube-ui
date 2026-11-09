@@ -8,13 +8,16 @@
 - `$PKG/` = `~/.local/lib/node_modules/@deepseek-ai/dsh/node_modules/@deepseek-ai/`
   （以下 `$PKG/dsh-client-ui-conversation/lib/client.js:20287` のように書く）
 - `$FRONT/` = `$PKG/dsh-web-frontend/dist/assets/`
+- `$NPX/` = `~/.npm/_npx/<hash>`（npx キャッシュ。`<hash>` は環境依存）
+- `<repo>/` = このリポジトリのルート（例: `<repo>/plugin`）、`<workspace>/` = 任意の作業ディレクトリ（バックアップの退避先など）
+- 実例として参照する `example-plugin` は**例示用の仮名**（作者の別プラグインの構成をそのまま例示したもの）
 - 凡例: **✅実測** = インストール済み 0.2.2-rc.1 の実コードで確認した。**⚠️推測** = コードから強く推測されるが未実行・未確認。
 - 型情報についての重要な注意:
   - `@deepseek-ai/dsh-client-ui-slots` は 0.2.2-rc.1 のインストール先 `node_modules/@deepseek-ai/` には**存在しない**。このパッケージは Web シェルのバンドル（`$FRONT/index-BgUyXZcc.js`）にインライン同梱されており、`staticModules` としてプラグインへ配られる（後述 §2）。
   - そのため `SlotCore` / `SlotMap` / `PropsRuntime` 等の**型宣言**は、npm npx キャッシュに残っていた `@deepseek-ai/dsh-client-ui-slots@0.2.0-rc.2` の d.ts を参照した。**バージョン差があるため、型の引用は「参考」**とし、挙動に関わる結論はすべて 0.2.2-rc.1 の実バンドル／実 d.ts で裏取りした。
   - `@deepseek-ai/dsh-client-store` も同様にバンドル同梱で、型は npx キャッシュの 0.2.0-rc.2 から引用（`SnapshotSelectorHook` 等）。
 - 依頼メモにあった `dsh-client-ui-nav` は **0.2.2-rc.1 に存在しない**。ナビゲーションは `dsh-client-ui-sidebar`（左）と `dsh-client-ui-sidebar-right`（右）が担う。`dsh-client-ui-chat`（会話本文の描画）は conversation から間接的に使われる。
-- `creator/cube-ui/DESIGN.md` は設計意図の参照のみに留め、API の断定には使っていない（本ノートの結論はすべて実コード由来）。
+- `<repo>/DESIGN.md` は設計意図の参照のみに留め、API の断定には使っていない（本ノートの結論はすべて実コード由来）。
 - バージョン（すべてインストール済みで確認）: `dsh` / `dsh-client-ui-renderer` / `dsh-client-ui-layout` / `dsh-client-ui-conversation` / `dsh-client-ui-session` / `dsh-client-ui-workspace` / `dsh-client-ui-theme` / `dsh-client-locale` / `dsh-client-ui-sidebar-right` / `dsh-cordis-client-runner` / `dsh-client-modules` / `dsh-package-manifest` = **0.2.2-rc.1**。
 
 ---
@@ -45,7 +48,7 @@
 
 ### 2.1 package.json / bundle patch
 
-前例 `creator/abyss-whale/package.json` がそのまま雛形になる。
+前例 `<workspace>/example-plugin/package.json` がそのまま雛形になる。
 
 ```json
 "dsh": {
@@ -74,15 +77,15 @@ export interface DshClientManifest {
 }
 ```
 
-- `dsh.bundle.patch` → `cordis.patch.yml` でプロファイル構成にプラグイン行を差し込む（abyss-whale の実例は `creator/abyss-whale/cordis.patch.yml`）。
+- `dsh.bundle.patch` → `cordis.patch.yml` でプロファイル構成にプラグイン行を差し込む（example-plugin の実例は `<workspace>/example-plugin/cordis.patch.yml`）。
 
 ### 2.2 client.js の形（`window.__ModuleLoader__.load`）
 
-`creator/abyss-whale/client.js:16-20`（実際の前例）:
+`<workspace>/example-plugin/client.js:16-20`（実際の前例）:
 
 ```js
 window.__ModuleLoader__.load({
-  id: '@local/dsh-abyss-whale',
+  id: '@local/dsh-example-plugin',
   factory(require) {
     const React = require('react');
     const h = React.createElement;
@@ -102,7 +105,7 @@ window.__ModuleLoader__.load({
  * and runs at materialization, not at script execution.
 ```
 
-- プラグイン本体は `{ inject: string[], apply(ctx) }` を返す（abyss-whale の `inject = ['theme','slots','locale','configForms']` と `apply(ctx)`。`creator/abyss-whale/client.js:875, 880-1124`）。
+- プラグイン本体は `{ inject: string[], apply(ctx) }` を返す（example-plugin の `inject = ['theme','slots','locale','configForms']` と `apply(ctx)`。`<workspace>/example-plugin/client.js:875, 880-1124`）。
 - `ctx.effect(disposerFactory, label)` でプラグインfiberの寿命に紐づける。`ctx.on(event, fn)` で購読。`ctx.get(name)` で**任意サービス**の有無を見る（例: `$PKG/dsh-client-ui-sidebar/lib/client.js:684` `ctx.get("productAnalytics")?.track(...)`）。
 - 診断用 registrant 名は `ctx.fiber?.name` から自動で付く。`$PKG/dsh-client-ui-renderer/lib/client.js:1603-1606`:
 
@@ -197,7 +200,7 @@ export interface ClientSlotEntry {
 
 ### 3.2 登録オプションの型（参考: ui-slots 0.2.0-rc.2 d.ts）
 
-`~/.npm/_npx/1e7f6d9597241db0/node_modules/@deepseek-ai/dsh-client-ui-slots/lib/types/index.d.ts:520-590`（`KindOptions` / `BaseOptions`）の要点:
+`$NPX/_npx/<hash>/node_modules/@deepseek-ai/dsh-client-ui-slots/lib/types/index.d.ts:520-590`（`KindOptions` / `BaseOptions`）の要点:
 
 ```ts
 export type KindOptions<K, EntryKey, M = never> = ... SlotMap[K]['kind'] extends 'keyed' ? {
@@ -1193,11 +1196,11 @@ radius の実値（`$PKG/dsh-client-ui-theme/lib/client.js:1464`）: `xs:4px / s
 
 ### 9.3 プラグイン CSS の推奨
 
-- **色・境界・影は `--dsw-alias-*` のみ**を使う（abyss-whale もそうしている。`creator/abyss-whale/client.js:44-140` は暗色パレットのために alias を上書きしているだけ）。
+- **色・境界・影は `--dsw-alias-*` のみ**を使う（example-plugin もそうしている。`<workspace>/example-plugin/client.js:44-140` は暗色パレットのために alias を上書きしているだけ）。
   例: `background: var(--dsw-alias-bg-layer-1); color: var(--dsw-alias-label-primary); border: .5px solid var(--dsw-alias-border-l3); box-shadow: var(--dsw-elevation-panel);`
 - ダーク固有の分岐が必要なら `body[data-ds-dark-theme] .cube-… { … }`。ただし基本は alias で足りる。
 - 立方体の独自色（ガラス壁など）は `ctx.theme.overrideTokens('@local/dsh-cube-ui', { '--dsw-alias-…': { light, dark } })` で**両モード必須**のレイヤとして定義できる（§9.4）。自前 CSS に直値で書くより追従性が高い。
-- 自前 `<style>` は `data-plugin` / `data-plugin-css` 付きで head に 1 回だけ入れる（abyss-whale の `installStyles` が実例。`creator/abyss-whale/client.js:774-840` 付近）。
+- 自前 `<style>` は `data-plugin` / `data-plugin-css` 付きで head に 1 回だけ入れる（example-plugin の `installStyles` が実例。`<workspace>/example-plugin/client.js:774-840` 付近）。
 
 ### 9.4 テーマ API（`$PKG/dsh-client-ui-theme/lib/types/client/index.d.ts`）
 
@@ -1341,14 +1344,14 @@ register(ns, localeOrDicts, dict) {
 bind(ns) { ... t = (key, params) => this.translate(ns, key, params); ... }
 ```
 
-- 名前空間は**単なる文字列**（例 `'settings.abyss-whale'`, `'cube'`）。型付きにするには `LocaleNamespaceMap` への declaration merging が必要だが、**JS プラグインなら不要**。
+- 名前空間は**単なる文字列**（例 `'settings.example-plugin'`, `'cube'`）。型付きにするには `LocaleNamespaceMap` への declaration merging が必要だが、**JS プラグインなら不要**。
 - 参照チェーン: アクティブロケール → その fallback → 英語 → 見つからなければ `common` 名前空間 → それでも無ければ **キー文字列そのもの**（`translate` 実装 :1711-1715）。
 - 実装 0.2.2-rc.1 は「baseline 2 言語必須」を**実行時には検証しない**（型でしか課していない）。ただしフォールバックの都合上 `zh` と `en` は必ず入れる。
 - 購読: `ctx.on('locale/change', snapshot)`（**辞書登録では発火しない**。辞書・表示の追従は LocaleFace の revision 経由）。スロット内コンポーネントは renderer が `useLocaleRevision` で再レンダーする（`$PKG/dsh-client-ui-renderer/lib/client.js:1117-1122`）ので、登録時に `locale: NS` を付けて `t` props を受け取るのが最も簡単。
 
-### 11.2 abyss-whale の実装例（前例そのまま）✅
+### 11.2 example-plugin の実装例（前例そのまま）✅
 
-`creator/abyss-whale/client.js:883-890`:
+`<workspace>/example-plugin/client.js:883-890`:
 
 ```js
 ctx.effect(
@@ -1358,18 +1361,18 @@ ctx.effect(
       en: LOCALE_DICTS.en,
       zh: LOCALE_DICTS.zh,
     }),
-  'abyss-whale: dictionaries',
+  'example-plugin: dictionaries',
 );
 ```
 
-（`LOCALE_NS = 'settings.abyss-whale'`、辞書は `creator/abyss-whale/locale/*.json`。）
+（`LOCALE_NS = 'settings.example-plugin'`、辞書は `<workspace>/example-plugin/locale/*.json`。）
 
 スロット登録側で `locale` を宣言する例（同 `:1093-1115`）:
 
 ```js
 ctx.slots.inject('settings.general.item', () =>
   ctx.slots.register(
-    { name: 'settings.general.item', id: 'abyss-whale', order: 13, locale: LOCALE_NS, inject: ... },
+    { name: 'settings.general.item', id: 'example-plugin', order: 13, locale: LOCALE_NS, inject: ... },
     ThemeRow,
   ),
 );
@@ -1611,7 +1614,7 @@ ctx.slots.inject('cube.center', () => ctx.slots.register(
 | staticModules（require 可能） | `$FRONT/index-BgUyXZcc.js:196` |
 | モジュールローダ契約 | `$PKG/dsh-client-modules/lib/types/client/manifest.d.ts:180-330` |
 | package.json の dsh フィールド | `$PKG/dsh-package-manifest/lib/types/types.d.ts:26-96` |
-| 前例プラグイン | `creator/abyss-whale/{package.json,cordis.patch.yml,client.js,index.js}` |
+| 前例プラグイン | `<workspace>/example-plugin/{package.json,cordis.patch.yml,client.js,index.js}` |
 
 ## 付録B: 調査に使った実測コマンド（読み取りのみ）
 
@@ -1623,7 +1626,7 @@ const src = fs.readFileSync("'$PKG'/dsh-cordis-client-runner/lib/client.js","utf
 // "const SERVICE_API = [" … 対応する "]" までを eval して JSON 化（本文の各抜粋の出所）
 '
 # 型の参照（0.2.0-rc.2。バージョン差のため参考）
-grep -n "Shadowing (single/keyed/list)" ~/.npm/_npx/1e7f6d9597241db0/node_modules/@deepseek-ai/dsh-client-ui-slots/lib/types/index.d.ts
+grep -n "Shadowing (single/keyed/list)" $NPX/_npx/<hash>/node_modules/@deepseek-ai/dsh-client-ui-slots/lib/types/index.d.ts
 # テーマ変数の抽出
 grep -o -- "--[A-Za-z0-9_-]*[[:space:]]*:" $PKG/dsh-client-ui-theme/lib/client.js | sort -u
 # プラグイン間 require の実測
