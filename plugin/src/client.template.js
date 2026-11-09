@@ -126,8 +126,11 @@ window.__ModuleLoader__.load({
       cube: '<path d="M12 3l7.5 4.3v9.4L12 21l-7.5-4.3V7.3z"/><path d="M12 3v18M4.5 7.3L12 12l7.5-4.7"/>',
       list: '<path d="M5 7h14M5 12h14M5 17h9"/>',
       chevronUp: '<path d="M6 14l6-6 6 6"/>',
+      chevronDown: '<path d="M6 10l6 6 6-6"/>',
       chevronLeft: '<path d="M14 6l-6 6 6 6"/>',
       chevronRight: '<path d="M10 6l6 6-6 6"/>',
+      check: '<path d="M5 12.5l4.5 4.5L19 7"/>',
+      layers: '<path d="M12 3.5l8.5 4.6L12 12.7 3.5 8.1 12 3.5z"/><path d="M3.5 12.4l8.5 4.6 8.5-4.6"/>',
       external: '<path d="M14 4h6v6M20 4l-8 8M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/>',
     };
 
@@ -1475,7 +1478,14 @@ window.__ModuleLoader__.load({
     }
 
     /** Services this plugin needs before it may apply. */
-    const inject = ['slots', 'locale', 'layout', 'uiWorkspace', 'shortcuts'];
+    const inject = [
+      'slots',
+      'locale',
+      'layout',
+      'uiWorkspace',
+      'shortcuts',
+      'remote',
+    ];
 
     /**
      * Open the shipped Settings modal.
@@ -1527,6 +1537,220 @@ window.__ModuleLoader__.load({
       }
       const target = document.activeElement ?? document.body;
       target.dispatchEvent(event);
+    }
+
+    // ---------------------------------------------------------------------
+    // Agent preset (mode) control in the composer tool row
+    //
+    // The host lets a Session's agent preset change only before its first
+    // turn, and the standard UI offers the choice on the New Session screen
+    // only — a screen the cube never shows, because "new session" drops
+    // straight into the conversation. This entry restores the choice inside
+    // the conversation: it sits to the right of the permission control, lists
+    // the host roster, applies the pick through the agentPresets Remote, and
+    // reports the lock once the conversation has started.
+    // ---------------------------------------------------------------------
+
+    const AGENT_MODE_KEYS = {
+      standard: 'mode.standard',
+      cordis: 'mode.creator',
+      ptc: 'mode.ptc',
+      minimal: 'mode.minimal',
+    };
+
+    // The roster is deployment-wide: read it once and share it across every
+    // mounted composer (the entry remounts on each Session switch).
+    let agentModeRoster = null;
+
+    function agentModeName(option, t) {
+      const key = AGENT_MODE_KEYS[option.id];
+      if (key !== undefined) return t(key);
+      return option.name ?? option.id;
+    }
+
+    function AgentModeSelect(props) {
+      const { sessionId, useSessions, t, modes } = props;
+      const presetId = useSessions((state) => {
+        const value =
+          sessionId === undefined ? undefined : state?.byId?.[sessionId]?.projectionValues?.agentPreset;
+        return typeof value === 'string' ? value : undefined;
+      });
+      const blank = useSessions(
+        (state) => sessionId !== undefined && state?.byId?.[sessionId]?.blank === true,
+      );
+      const [roster, setRoster] = useState(agentModeRoster);
+      const [open, setOpen] = useState(false);
+      const [menuBox, setMenuBox] = useState(null);
+      const [busy, setBusy] = useState(false);
+      const [failure, setFailure] = useState(null);
+      const rootRef = useRef(null);
+
+      // A refusal leaves the control out of the row rather than offering a
+      // menu the deployment cannot fill.
+      useEffect(() => {
+        if (agentModeRoster !== null || modes === undefined) return undefined;
+        let alive = true;
+        Promise.resolve()
+          .then(() => modes.load())
+          .then((result) => {
+            if (!alive || result?.ok !== true) return;
+            agentModeRoster = result.value;
+            setRoster(result.value);
+          })
+          .catch((error) => {
+            console.warn('[cube-ui] agent preset roster unavailable:', error);
+          });
+        return () => {
+          alive = false;
+        };
+      }, [modes]);
+
+      // The composer row sits inside the rotated face, so the menu is a plain
+      // child anchored above the trigger instead of a body portal.
+      useEffect(() => {
+        if (!open) return undefined;
+        const onPointerDown = (event) => {
+          const root = rootRef.current;
+          if (root !== null && !root.contains(event.target)) setOpen(false);
+        };
+        const onKeyDown = (event) => {
+          if (event.key !== 'Escape') return;
+          setOpen(false);
+          // Keep the cube's own Escape (leave the inside view) out of it.
+          event.stopPropagation();
+        };
+        document.addEventListener('pointerdown', onPointerDown, true);
+        document.addEventListener('keydown', onKeyDown, true);
+        return () => {
+          document.removeEventListener('pointerdown', onPointerDown, true);
+          document.removeEventListener('keydown', onKeyDown, true);
+        };
+      }, [open]);
+
+      const options = (roster?.presets ?? []).filter((option) => option.broken === undefined);
+      if (modes === undefined || sessionId === undefined || options.length < 2) return null;
+
+      const locked = !blank;
+      const currentId = presetId ?? options.find((option) => option.isDefault === true)?.id;
+      const current = options.find((option) => option.id === currentId);
+      const label = current === undefined ? t('mode.label') : agentModeName(current, t);
+
+      // The face clips its children, so measure it before opening and keep the
+      // menu inside it: narrow cubes (size pill below 100%) would otherwise
+      // cut the menu's right edge off. The face is perspective-projected, so
+      // screen rects are scaled against its CSS width and converted back.
+      const openMenu = () => {
+        const root = rootRef.current;
+        const trigger = root === null ? null : root.querySelector('.cube-mode-trigger');
+        const face = root === null ? null : root.closest('.face');
+        if (trigger !== null && face !== null && face.offsetWidth > 0) {
+          const triggerRect = trigger.getBoundingClientRect();
+          const faceRect = face.getBoundingClientRect();
+          const scale = faceRect.width / face.offsetWidth;
+          const margin = 8;
+          const width = Math.max(180, Math.min(252, Math.round(face.offsetWidth - margin * 2)));
+          let left = Math.round((faceRect.right - margin * scale - width * scale - triggerRect.left) / scale);
+          if (left > 0) left = 0;
+          const floor = Math.round((faceRect.left + margin * scale - triggerRect.left) / scale);
+          if (left < floor) left = floor;
+          setMenuBox({ left, width });
+        } else {
+          setMenuBox(null);
+        }
+        setOpen(true);
+      };
+
+      const pick = (option) => {
+        if (locked || busy) return;
+        setBusy(true);
+        setFailure(null);
+        Promise.resolve()
+          .then(() => modes.select(sessionId, option.id))
+          .then((result) => {
+            if (result?.ok === true) {
+              setOpen(false);
+              return;
+            }
+            const code = result?.error?.code;
+            setFailure(
+              code === 'agent-preset/locked'
+                ? t('mode.locked')
+                : result?.error?.message ?? t('mode.error'),
+            );
+          })
+          .catch((error) => {
+            setFailure(error instanceof Error ? error.message : String(error));
+          })
+          .then(() => setBusy(false));
+      };
+
+      return h(
+        'span',
+        { className: 'cube-mode' + (open ? ' open' : ''), ref: rootRef },
+        h(
+          'button',
+          {
+            type: 'button',
+            className: 'cube-mode-trigger',
+            disabled: locked || busy,
+            title: locked ? t('mode.locked') : t('mode.hint'),
+            'aria-label': t('mode.label') + ': ' + label,
+            'aria-haspopup': 'listbox',
+            'aria-expanded': open ? 'true' : 'false',
+            onClick: () => {
+              if (locked || busy) return;
+              if (open) {
+                setOpen(false);
+                return;
+              }
+              openMenu();
+            },
+          },
+          h(Icon, { name: 'layers', className: 'cube-mode-glyph' }),
+          h('span', { className: 'cube-mode-text' }, label),
+          h(Icon, { name: 'chevronDown', className: 'cube-mode-caret' }),
+        ),
+        open
+          ? h(
+              'div',
+              {
+                className: 'cube-mode-menu',
+                role: 'listbox',
+                'aria-label': t('mode.label'),
+                style: menuBox === null ? undefined : { left: menuBox.left + 'px', width: menuBox.width + 'px' },
+              },
+              options.map((option) =>
+                h(
+                  'button',
+                  {
+                    key: option.id,
+                    type: 'button',
+                    role: 'option',
+                    className: 'cube-mode-item' + (option.id === currentId ? ' current' : ''),
+                    'aria-selected': option.id === currentId ? 'true' : 'false',
+                    disabled: busy,
+                    title: option.description ?? undefined,
+                    onClick: () => pick(option),
+                  },
+                  h(
+                    'span',
+                    { className: 'cube-mode-item-name' },
+                    h('span', {}, agentModeName(option, t)),
+                    option.id === currentId
+                      ? h(Icon, { name: 'check', className: 'cube-mode-check' })
+                      : null,
+                  ),
+                  option.description === undefined
+                    ? null
+                    : h('span', { className: 'cube-mode-item-desc' }, option.description),
+                ),
+              ),
+              failure === null
+                ? null
+                : h('div', { className: 'cube-mode-error', role: 'alert' }, failure),
+            )
+          : null,
+      );
     }
 
     function apply(ctx) {
@@ -1604,6 +1828,36 @@ window.__ModuleLoader__.load({
             inject: () => ({ channel, actions }),
           },
           CubeStage,
+        ),
+      );
+
+      // The preset (mode) picker the shipped New Session screen would offer.
+      // The cube never shows that screen — "new session" opens the
+      // conversation directly — so the choice is restored in the composer's
+      // tool row, immediately right of the permission control. A Session
+      // keeps its preset once its first turn has run; the control reports
+      // that instead of promising a late switch.
+      // Read the namespace through the service table instead of declaring
+      // `remote.agentPresets` as an injection: the cube must keep working when
+      // a deployment composes no agent presets (the control then stays hidden).
+      const presetNamespace = () =>
+        ctx.get?.('remote.agentPresets') ?? ctx.get?.('remote')?.agentPresets;
+
+      const agentModes = {
+        load: () => presetNamespace().list(),
+        select: (sessionId, presetId) => presetNamespace().select(sessionId, presetId),
+      };
+
+      ctx.slots.inject('conversation.input.left', () =>
+        ctx.slots.register(
+          {
+            name: 'conversation.input.left',
+            id: 'cube-ui-agent-mode',
+            order: 0,
+            locale: LOCALE_NS,
+            inject: () => ({ modes: agentModes }),
+          },
+          AgentModeSelect,
         ),
       );
 

@@ -1998,3 +1998,127 @@
 .cube-ui .face-conv .conv-body.embedded {
   background: var(--dsw-alias-bg-base);
 }
+
+/* --------------------------------------------------------------------------
+   21. Composer: agent-preset (mode) control
+
+   The shipped UI offers the agent preset only on the New Session screen, which
+   the cube never shows ("new session" opens the conversation directly). This
+   entry sits in the composer tool row immediately to the right of the
+   permission control. A Session keeps its preset once its first turn has run,
+   so the trigger is disabled after that and its tooltip says why.
+   -------------------------------------------------------------------------- */
+
+.cube-ui .cube-mode {
+  position: relative;
+  display: inline-flex;
+  min-width: 0;
+}
+
+.cube-ui .cube-mode-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 198px;
+  height: 28px;
+  padding: 0 6px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--cube-text-dim);
+  font: inherit;
+  font-size: 12.5px;
+  line-height: 20px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.cube-ui .cube-mode-trigger:hover:not(:disabled),
+.cube-ui .cube-mode.open .cube-mode-trigger {
+  background: var(--cube-hover);
+  color: var(--cube-text);
+}
+
+.cube-ui .cube-mode-trigger:disabled {
+  color: var(--cube-text-caption);
+  cursor: default;
+}
+
+.cube-ui .cube-mode-trigger .ico svg { width: 14px; height: 14px; }
+
+.cube-ui .cube-mode-caret { color: var(--cube-text-caption); }
+.cube-ui .cube-mode-caret svg { width: 12px; height: 12px; }
+
+.cube-ui .cube-mode-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* The menu opens upward inside the face: the composer sits at its bottom edge. */
+.cube-ui .cube-mode-menu {
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 0;
+  z-index: 12;
+  width: 252px;
+  max-height: 232px;
+  overflow: auto;
+  padding: 6px;
+  border: 1px solid var(--cube-border-strong);
+  border-radius: 12px;
+  background: var(--cube-surface-raised);
+  box-shadow: var(--cube-shadow);
+  scrollbar-width: thin;
+  scrollbar-color: var(--cube-scroll-thumb) transparent;
+}
+
+.cube-ui .cube-mode-item {
+  display: block;
+  width: 100%;
+  padding: 7px 9px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--cube-text);
+  font: inherit;
+  font-size: 12.5px;
+  line-height: 18px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.cube-ui .cube-mode-item:hover:not(:disabled),
+.cube-ui .cube-mode-item:focus-visible {
+  background: var(--cube-hover-active);
+}
+
+.cube-ui .cube-mode-item.current { background: var(--cube-accent-soft); }
+.cube-ui .cube-mode-item:disabled { opacity: 0.55; cursor: default; }
+
+.cube-ui .cube-mode-item-name {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 500;
+}
+
+.cube-ui .cube-mode-check { margin-left: auto; color: var(--cube-accent); }
+.cube-ui .cube-mode-check svg { width: 13px; height: 13px; }
+
+.cube-ui .cube-mode-item-desc {
+  display: block;
+  margin-top: 2px;
+  color: var(--cube-text-caption);
+  font-size: 10.5px;
+  line-height: 15px;
+  white-space: normal;
+}
+
+.cube-ui .cube-mode-error {
+  margin-top: 4px;
+  padding: 4px 7px;
+  color: var(--dsw-alias-state-error-primary);
+  font-size: 11px;
+  line-height: 16px;
+}

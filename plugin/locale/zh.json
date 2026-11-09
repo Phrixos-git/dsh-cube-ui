@@ -48,5 +48,13 @@
   "size.larger": "放大立方体",
   "hint.insideShort": "拖动旋转 ・ Esc 返回",
   "more.diagnostics": "诊断信息",
-  "more.diagnosticsMeta": "用于排查滚动问题"
+  "more.diagnosticsMeta": "用于排查滚动问题",
+  "mode.label": "Agent 模式",
+  "mode.hint": "选择 Agent 的工具配置",
+  "mode.locked": "会话开始后无法更改模式",
+  "mode.error": "无法切换模式",
+  "mode.standard": "标准模式",
+  "mode.creator": "创造模式",
+  "mode.ptc": "PTC 模式",
+  "mode.minimal": "极简模式"
 }

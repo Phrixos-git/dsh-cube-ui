@@ -48,5 +48,13 @@
   "size.larger": "立方体を大きく",
   "hint.insideShort": "ドラッグで回転 ・ Esc で戻る",
   "more.diagnostics": "診断情報",
-  "more.diagnosticsMeta": "スクロール不調時の確認用"
+  "more.diagnosticsMeta": "スクロール不調時の確認用",
+  "mode.label": "エージェントモード",
+  "mode.hint": "エージェントのツール構成を選択",
+  "mode.locked": "会話が始まるとモードを変更できません",
+  "mode.error": "モードを切り替えられませんでした",
+  "mode.standard": "標準モード",
+  "mode.creator": "クリエイターモード",
+  "mode.ptc": "PTC モード",
+  "mode.minimal": "最小モード"
 }

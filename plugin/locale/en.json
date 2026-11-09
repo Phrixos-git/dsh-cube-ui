@@ -48,5 +48,13 @@
   "size.larger": "Enlarge the cube",
   "hint.insideShort": "Drag to rotate ・ Esc to go back",
   "more.diagnostics": "Diagnostics",
-  "more.diagnosticsMeta": "For scroll troubleshooting"
+  "more.diagnosticsMeta": "For scroll troubleshooting",
+  "mode.label": "Agent mode",
+  "mode.hint": "Choose the agent's tools",
+  "mode.locked": "The mode cannot change once the conversation starts",
+  "mode.error": "Could not change the mode",
+  "mode.standard": "Standard mode",
+  "mode.creator": "Creator mode",
+  "mode.ptc": "PTC mode",
+  "mode.minimal": "Minimal mode"
 }
