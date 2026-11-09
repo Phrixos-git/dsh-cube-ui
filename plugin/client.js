@@ -200,23 +200,56 @@ window.__ModuleLoader__.load({
       return String(value).padStart(2, '0');
     }
 
+    // Building an Intl.DateTimeFormat resolves locale data and is by far the
+    // most expensive thing this file does per call. A face formats one
+    // timestamp per Session, on every render, so keep one formatter per shape
+    // and memoise the rendered strings. The memo is keyed by timestamp and
+    // cleared when the calendar day rolls over, so "today" never leaks into
+    // "yesterday".
+    let timeFormatter = null;
+    let dateFormatter = null;
+    let memoDayKey = '';
+    const shortTimeMemo = new Map();
+    const SHORT_TIME_MEMO_MAX = 400;
+
+    function dayKeyOf(date) {
+      return date.getFullYear() + '-' + date.getMonth() + '-' + date.getDate();
+    }
+
     /** Compact, locale-neutral session age: time today, date otherwise. */
     function shortTime(timestamp) {
       if (typeof timestamp !== 'number' || !Number.isFinite(timestamp)) return '';
+      const todayKey = dayKeyOf(new Date());
+      if (todayKey !== memoDayKey) {
+        memoDayKey = todayKey;
+        shortTimeMemo.clear();
+      }
+      const memo = shortTimeMemo.get(timestamp);
+      if (memo !== undefined) return memo;
       const date = new Date(timestamp);
       if (!Number.isFinite(date.getTime())) return '';
-      const now = new Date();
-      const sameDay =
-        date.getFullYear() === now.getFullYear() &&
-        date.getMonth() === now.getMonth() &&
-        date.getDate() === now.getDate();
+      const sameDay = dayKeyOf(date) === todayKey;
+      let text;
       try {
-        return sameDay
-          ? new Intl.DateTimeFormat(undefined, { hour: '2-digit', minute: '2-digit' }).format(date)
-          : new Intl.DateTimeFormat(undefined, { month: 'numeric', day: 'numeric' }).format(date);
+        if (sameDay) {
+          if (timeFormatter === null) {
+            timeFormatter = new Intl.DateTimeFormat(undefined, { hour: '2-digit', minute: '2-digit' });
+          }
+          text = timeFormatter.format(date);
+        } else {
+          if (dateFormatter === null) {
+            dateFormatter = new Intl.DateTimeFormat(undefined, { month: 'numeric', day: 'numeric' });
+          }
+          text = dateFormatter.format(date);
+        }
       } catch (error) {
-        return sameDay ? pad2(date.getHours()) + ':' + pad2(date.getMinutes()) : pad2(date.getMonth() + 1) + '/' + pad2(date.getDate());
+        text = sameDay
+          ? pad2(date.getHours()) + ':' + pad2(date.getMinutes())
+          : pad2(date.getMonth() + 1) + '/' + pad2(date.getDate());
       }
+      if (shortTimeMemo.size >= SHORT_TIME_MEMO_MAX) shortTimeMemo.clear();
+      shortTimeMemo.set(timestamp, text);
+      return text;
     }
 
     function clamp(value, low, high) {
@@ -297,7 +330,12 @@ window.__ModuleLoader__.load({
       const activeWorkspace =
         sessionWorkspace ??
         (ui.workspaceId === undefined ? undefined : items.find((item) => item.workspaceId === ui.workspaceId));
-      const activeSessions = sessionsOf(activeWorkspace, sessionState);
+      // Rows are derived from the Workspace list, not from conversation
+      // updates: memoise so a streaming Session never re-filters them.
+      const activeSessions = useMemo(
+        () => sessionsOf(activeWorkspace, sessionState),
+        [activeWorkspace, sessionState],
+      );
       const mode = ui.mode;
       const inside = mode === 'inside';
       const running = sessionRow?.running === true || sessionStatus?.get?.(sessionId)?.running === true;
@@ -334,6 +372,11 @@ window.__ModuleLoader__.load({
       const rotation = useRef({ rx: INITIAL_RX, ry: INITIAL_RY });
       const snapTimer = useRef(0);
       const drag = useRef(null);
+      /** Pending pointer sample + the frame that will consume it. Polling
+       *  mice emit several pointermove events per display frame; writing the
+       *  transform once per frame keeps the layout/paint work bounded. */
+      const dragFrame = useRef(0);
+      const dragSample = useRef(null);
       const [front, setFront] = useState(frontSlotOf(INITIAL_RX, INITIAL_RY));
       /** True while the cube is being dragged or snapping: faces drop to
        *  identity detail so a workspace stays recognizable without painting
@@ -351,6 +394,8 @@ window.__ModuleLoader__.load({
         applyRotation();
         return () => {
           window.clearTimeout(snapTimer.current);
+          if (dragFrame.current !== 0) window.cancelAnimationFrame(dragFrame.current);
+          dragFrame.current = 0;
         };
       }, [applyRotation]);
 
@@ -449,6 +494,9 @@ window.__ModuleLoader__.load({
           if (target.closest('.cube') === null) return;
           if (target.closest('.face-conv') !== null) return;
           window.clearTimeout(snapTimer.current);
+          if (dragFrame.current !== 0) window.cancelAnimationFrame(dragFrame.current);
+          dragFrame.current = 0;
+          dragSample.current = null;
           if (cubeRef.current !== null) cubeRef.current.classList.remove('snap');
           channel.update({ menuOpen: false });
           setRotating(true);
@@ -470,23 +518,44 @@ window.__ModuleLoader__.load({
         [],
       );
 
+      // Write the rotation at most once per display frame. Mouse drivers that
+      // poll at 500-1000 Hz otherwise re-style and re-paint the cube several
+      // times for a frame the user never sees.
+      const flushDragSample = useCallback(() => {
+        dragFrame.current = 0;
+        const sample = dragSample.current;
+        dragSample.current = null;
+        const state = drag.current;
+        if (sample === null || state === null || state.pointerId !== sample.pointerId) return;
+        const dx = sample.clientX - state.originX;
+        const dy = sample.clientY - state.originY;
+        rotation.current.ry = state.ry + dx * DRAG_YAW;
+        rotation.current.rx = clamp(state.rx - dy * DRAG_PITCH, -PITCH_LIMIT, PITCH_LIMIT);
+        applyRotation();
+      }, [applyRotation]);
+
       const onPointerMove = useCallback(
         (event) => {
           const state = drag.current;
           if (state === null || state.pointerId !== event.pointerId) return;
-          const dx = event.clientX - state.originX;
-          const dy = event.clientY - state.originY;
-          rotation.current.ry = state.ry + dx * DRAG_YAW;
-          rotation.current.rx = clamp(state.rx - dy * DRAG_PITCH, -PITCH_LIMIT, PITCH_LIMIT);
-          applyRotation();
+          dragSample.current = { pointerId: event.pointerId, clientX: event.clientX, clientY: event.clientY };
+          if (dragFrame.current !== 0) return;
+          dragFrame.current = window.requestAnimationFrame(flushDragSample);
         },
-        [applyRotation],
+        [flushDragSample],
       );
 
       const onPointerUp = useCallback(
         (event) => {
           const state = drag.current;
           if (state === null || (event.pointerId !== undefined && state.pointerId !== event.pointerId)) return;
+          // Consume the last sample before the snap attitude is read, so the
+          // cube settles on the rotation the pointer actually reached.
+          if (dragFrame.current !== 0) {
+            window.cancelAnimationFrame(dragFrame.current);
+            dragFrame.current = 0;
+          }
+          if (dragSample.current !== null) flushDragSample();
           drag.current = null;
           if (stageRef.current !== null) stageRef.current.classList.remove('grabbing');
           try {
@@ -497,7 +566,7 @@ window.__ModuleLoader__.load({
           const attitude = snapAttitude(rotation.current.rx, rotation.current.ry);
           snap(attitude.rx, attitude.ry);
         },
-        [snap],
+        [snap, flushDragSample],
       );
 
       // -- Synchronise the cube with the selected Session ------------------
@@ -633,28 +702,31 @@ window.__ModuleLoader__.load({
 
       // -- Render ---------------------------------------------------------
 
-      const conversationBody =
-        emptyWorkspace === undefined
-          ? sessionId === undefined
-            ? null
-            : renderFactorySlot('conversation.content', { variant: 'embedded', phase: 'active', hero: false })
-          : h(
-              'div',
-              { className: 'conv-empty' },
-              h('p', {}, t('conv.empty')),
-              h(
-                'button',
-                {
-                  type: 'button',
-                  className: 'ghost-btn',
-                  onClick: () => {
-                    actions.startSession(emptyWorkspace.workspaceId);
+      const conversationBody = useMemo(
+        () =>
+          emptyWorkspace === undefined
+            ? sessionId === undefined
+              ? null
+              : renderFactorySlot('conversation.content', { variant: 'embedded', phase: 'active', hero: false })
+            : h(
+                'div',
+                { className: 'conv-empty' },
+                h('p', {}, t('conv.empty')),
+                h(
+                  'button',
+                  {
+                    type: 'button',
+                    className: 'ghost-btn',
+                    onClick: () => {
+                      actions.startSession(emptyWorkspace.workspaceId);
+                    },
                   },
-                },
-                h(Icon, { name: 'plus' }),
-                t('sessions.new'),
+                  h(Icon, { name: 'plus' }),
+                  t('sessions.new'),
+                ),
               ),
-            );
+        [emptyWorkspace, sessionId, t, actions, renderFactorySlot],
+      );
 
       // Scrolling inside the embedded conversation must not depend on which
       // element the wheel happens to target: on GPU-composited 3D faces the
@@ -716,7 +788,7 @@ window.__ModuleLoader__.load({
       // The conversation is not a floating panel: it is the front face of the
       // cube. Rotating carries it out of view with that Workspace and the next
       // face brings its own Session surface in.
-      const conversationPanel = h(
+      const conversationPanel = useMemo(() => h(
         'div',
         { className: 'face-conv', 'data-cube-conversation': '', 'aria-label': t('conv.title') },
         h(
@@ -815,9 +887,22 @@ window.__ModuleLoader__.load({
           },
           conversationBody,
         ),
-      );
+      ), [
+        t,
+        activeWorkspace,
+        closeConversation,
+        ui.menuOpen,
+        sessionRow,
+        running,
+        activeSessions,
+        sessionId,
+        selectSession,
+        newSession,
+        conversationBody,
+        channel,
+      ]);
 
-      const faces = pageWorkspaces.map(({ slot, abs, workspace }) => {
+      const faces = useMemo(() => pageWorkspaces.map(({ slot, abs, workspace }) => {
         const rows = sessionsOf(workspace, sessionState);
         const isFront = slot === front;
         const hosting = inside && isFront && workspace !== undefined;
@@ -945,7 +1030,20 @@ window.__ModuleLoader__.load({
           ),
           hosting ? conversationPanel : null,
         );
-      });
+      }), [
+        pageWorkspaces,
+        sessionState,
+        sessionId,
+        front,
+        inside,
+        activeWorkspace,
+        t,
+        conversationPanel,
+        openFromFace,
+        rotateToFace,
+        channel,
+        actions,
+      ]);
 
       return h(
         'div',
