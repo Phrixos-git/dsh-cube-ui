@@ -1,0 +1,25 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: plugin
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Bundle is up to date with src/ and locale/
+        run: node build.mjs && git diff --exit-code -- client.js
+      - name: Smoke test (bundle loads, slots register)
+        run: node tools/smoke.mjs
+      - name: Render check (jsdom + React 19)
+        run: |
+          npm i --no-save --no-audit --no-fund --prefix "$RUNNER_TEMP/cube-ui-test" jsdom@26 react@19 react-dom@19
+          CUBE_UI_TEST_MODULES="$RUNNER_TEMP/cube-ui-test/node_modules" node tools/render-check.cjs

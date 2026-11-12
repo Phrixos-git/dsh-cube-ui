@@ -4,8 +4,8 @@
 //
 //   * it shadows `main.conversation` (the shipped ConversationRoot) with a
 //     stage that draws six Workspace faces on a rotatable 3D cube;
-//   * dragging rotates the cube with inertia and a 90 degree snap; the front
-//     face is the Workspace in focus;
+//   * dragging (or the arrow keys / the face buttons) rotates the cube with
+//     a 90 degree snap; the front face is the Workspace in focus;
 //   * selecting a Session opens it "inside the cube": the shipped Conversation
 //     content and composer are instantiated in the centre of the stage through
 //     `renderFactorySlot('conversation.content', { variant: 'embedded' })`, so
@@ -41,7 +41,8 @@ window.__ModuleLoader__.load({
     const STYLES = __STYLES_JSON__;
     const LOCALE_DICTS = __LOCALE_JSON__;
 
-    /** The cube rests face-on: the front face is parallel to the screen. */
+    /** Cube attitude at rest. Browse mode adds a slight idle tilt in CSS so
+     *  the cube reads as a cube; inside mode rests face-on. */
     const INITIAL_RX = 0;
     const INITIAL_RY = 0;
     /** Snap animation length; must stay in sync with `.cube.snap` in styles. */
@@ -53,29 +54,64 @@ window.__ModuleLoader__.load({
     const PITCH_LIMIT = 100;
     /** Past this pitch the cube settles on its top or bottom face. */
     const PITCH_COMMIT = 55;
-    /** Repeat of a face rotation while we are still settling. */
+    /** Faces per page: one Workspace per face. */
     const FACES = 6;
+    /** A press must travel this far (px) before it turns the cube. */
+    const DRAG_SLOP = 5;
 
     /** User-tunable cube scale, persisted per browser. */
     const SCALE_KEY = 'dsh.cube-ui.scale';
     const SCALE_MIN = 0.6;
     const SCALE_MAX = 1.6;
+    /** First-run guide, dismissed hint, one-time sidebar default. */
+    const ONBOARD_KEY = 'dsh.cube-ui.onboarded';
+    const HINT_KEY = 'dsh.cube-ui.hintDismissed';
+    const SIDEBAR_KEY = 'dsh.cube-ui.sidebarDefaulted';
 
-    function readScale() {
+    // Storage may be unavailable (private windows, blocked site data); every
+    // caller treats a missing value as "first visit" and keeps working.
+    function readStored(key) {
       try {
-        const value = Number(window.localStorage.getItem(SCALE_KEY));
-        return Number.isFinite(value) && value > 0 ? clamp(value, SCALE_MIN, SCALE_MAX) : 1;
+        return window.localStorage.getItem(key);
       } catch (error) {
-        return 1;
+        return null;
       }
     }
 
-    function writeScale(scale) {
+    function writeStored(key, value) {
       try {
-        window.localStorage.setItem(SCALE_KEY, String(scale));
+        if (value === null) window.localStorage.removeItem(key);
+        else window.localStorage.setItem(key, value);
       } catch (error) {
-        // Storage may be unavailable in private windows; the cube still resizes.
+        // Not persisted; the in-memory state still applies for this load.
       }
+    }
+
+    function readScale() {
+      const value = Number(readStored(SCALE_KEY));
+      return Number.isFinite(value) && value > 0 ? clamp(value, SCALE_MIN, SCALE_MAX) : 1;
+    }
+
+    function writeScale(scale) {
+      writeStored(SCALE_KEY, String(scale));
+    }
+
+    function reducedMotion() {
+      try {
+        return window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches === true;
+      } catch (error) {
+        return false;
+      }
+    }
+
+    /** CSS drops the snap transition under reduced motion; follow it. */
+    function snapDuration() {
+      return reducedMotion() ? 40 : SNAP_MS;
+    }
+
+    /** "{count} sessions" with a singular form where the language has one. */
+    function countLabel(t, count, oneKey, manyKey) {
+      return t(count === 1 ? oneKey : manyKey, { count });
     }
 
     /**
@@ -300,6 +336,90 @@ window.__ModuleLoader__.load({
     }
 
     // ---------------------------------------------------------------------
+    // Focus and menu helpers
+    // ---------------------------------------------------------------------
+
+    /** Visually hidden but announced (status region, key help). */
+    const SR_ONLY = 'cube-sr-only';
+
+    /**
+     * Focus the first match of `selectors` under `getRoot()`, retrying for a
+     * few frames: embedded conversation content and freshly opened menus
+     * mount after the state change that asked for the focus.
+     */
+    function focusWhenReady(getRoot, selectors, frames) {
+      let left = frames ?? 20;
+      const attempt = () => {
+        const root = getRoot();
+        if (root !== null && root !== undefined) {
+          for (const selector of selectors) {
+            const node = root.querySelector(selector);
+            if (node !== null && typeof node.focus === 'function' && node.getClientRects().length > 0) {
+              node.focus({ preventScroll: true });
+              return;
+            }
+          }
+        }
+        left -= 1;
+        if (left > 0) window.requestAnimationFrame(attempt);
+      };
+      window.requestAnimationFrame(attempt);
+    }
+
+    /** Arrow/Home/End movement between the buttons of a small menu. */
+    function onMenuKeyDown(event) {
+      const key = event.key;
+      if (key !== 'ArrowDown' && key !== 'ArrowUp' && key !== 'Home' && key !== 'End') return;
+      const nodes = [...event.currentTarget.querySelectorAll('button:not(:disabled)')];
+      if (nodes.length === 0) return;
+      event.preventDefault();
+      const index = nodes.indexOf(document.activeElement);
+      let next;
+      if (key === 'Home') next = 0;
+      else if (key === 'End') next = nodes.length - 1;
+      else if (key === 'ArrowDown') next = index < 0 ? 0 : (index + 1) % nodes.length;
+      else next = index < 0 ? nodes.length - 1 : (index - 1 + nodes.length) % nodes.length;
+      nodes[next].focus();
+    }
+
+    /** Keep Tab inside a dialog. */
+    function trapTab(event) {
+      if (event.key !== 'Tab') return;
+      const nodes = [
+        ...event.currentTarget.querySelectorAll(
+          'button:not(:disabled), [href], input:not(:disabled), select, textarea, [tabindex]:not([tabindex="-1"])',
+        ),
+      ];
+      if (nodes.length === 0) return;
+      const first = nodes[0];
+      const last = nodes[nodes.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    }
+
+    /**
+     * Screen geometry of `element` against the cube face that clips it. The
+     * face is perspective-projected, so screen rects are scaled against its
+     * CSS width; callers convert back with `scale`.
+     */
+    function measureInFace(element) {
+      if (element === null || element === undefined) return null;
+      const face = element.closest('.face');
+      if (face === null || face.offsetWidth === 0) return null;
+      const faceRect = face.getBoundingClientRect();
+      return { scale: faceRect.width / face.offsetWidth, faceRect, rect: element.getBoundingClientRect() };
+    }
+
+    function isRunning(row, sessionStatus) {
+      return row?.running === true || sessionStatus?.get?.(row?.id)?.running === true;
+    }
+
+    // ---------------------------------------------------------------------
     // Stage: cube of Workspaces plus the embedded conversation
     // ---------------------------------------------------------------------
 
@@ -307,7 +427,6 @@ window.__ModuleLoader__.load({
       const {
         sessionId,
         useSession,
-        useConversation,
         useSessions,
         useWorkspaces,
         useSessionStatus,
@@ -321,27 +440,47 @@ window.__ModuleLoader__.load({
       const workspaceState = useWorkspaces((state) => state);
       const sessionState = useSessions((state) => state);
       const sessionStatus = useSessionStatus((state) => state);
-      const sessionSnapshot = useSession((state) => state);
+      // Subscribed so the stage follows the bound Session (title, running).
+      useSession((state) => state);
       const ui = useChannel(channel);
 
       const items = workspaceState?.items ?? [];
+      // Not yet fetched and genuinely empty must not look the same.
+      const loading =
+        items.length === 0 &&
+        (workspaceState === undefined ||
+          workspaceState === null ||
+          workspaceState.phase === 'pending' ||
+          workspaceState.state === 'loading');
+      const failed = items.length === 0 && !loading && workspaceState?.state === 'error';
       const pageCount = Math.max(1, Math.ceil(items.length / FACES));
       const page = clamp(ui.page, 0, pageCount - 1);
+      const mode = ui.mode;
+      const inside = mode === 'inside';
       const sessionRow = sessionId === undefined ? undefined : sessionState?.byId?.[sessionId];
       const sessionWorkspace =
         sessionId === undefined ? undefined : items.find((item) => (item.sessionIds ?? []).includes(sessionId));
-      const activeWorkspace =
-        sessionWorkspace ??
-        (ui.workspaceId === undefined ? undefined : items.find((item) => item.workspaceId === ui.workspaceId));
+      const channelWorkspace =
+        ui.workspaceId === undefined ? undefined : items.find((item) => item.workspaceId === ui.workspaceId);
+      // Inside the cube the face decides the Workspace: turning onto a
+      // Workspace without Sessions must not keep showing the previous one.
+      const activeWorkspace = inside
+        ? channelWorkspace ?? sessionWorkspace
+        : sessionWorkspace ?? channelWorkspace;
+      // The host Session belongs on this face only when it is this face's
+      // Workspace. A Session not listed yet (a fresh blank one) is shown.
+      const showConversation =
+        sessionId !== undefined &&
+        (sessionWorkspace === undefined ||
+          activeWorkspace === undefined ||
+          sessionWorkspace.workspaceId === activeWorkspace.workspaceId);
       // Rows are derived from the Workspace list, not from conversation
       // updates: memoise so a streaming Session never re-filters them.
       const activeSessions = useMemo(
         () => sessionsOf(activeWorkspace, sessionState),
         [activeWorkspace, sessionState],
       );
-      const mode = ui.mode;
-      const inside = mode === 'inside';
-      const running = sessionRow?.running === true || sessionStatus?.get?.(sessionId)?.running === true;
+      const running = showConversation && isRunning(sessionRow ?? { id: sessionId }, sessionStatus);
 
       const pageWorkspaces = useMemo(() => {
         const slice = [];
@@ -371,6 +510,7 @@ window.__ModuleLoader__.load({
       const hostRef = useRef(null);
       const rootRef = useRef(null);
       const stageRef = useRef(null);
+      const shellRef = useRef(null);
       const cubeRef = useRef(null);
       const rotation = useRef({ rx: INITIAL_RX, ry: INITIAL_RY });
       const snapTimer = useRef(0);
@@ -380,11 +520,15 @@ window.__ModuleLoader__.load({
        *  transform once per frame keeps the layout/paint work bounded. */
       const dragFrame = useRef(0);
       const dragSample = useRef(null);
+      /** Where focus should land once the cube settles ('conv' | 'cube'). */
+      const pendingFocus = useRef(null);
       const [front, setFront] = useState(frontSlotOf(INITIAL_RX, INITIAL_RY));
       /** True while the cube is being dragged or snapping: faces drop to
        *  identity detail so a workspace stays recognizable without painting
        *  the session lists on every rotating face. */
       const [rotating, setRotating] = useState(false);
+      const [announcement, setAnnouncement] = useState('');
+      const [menuBox, setMenuBox] = useState(null);
 
       const applyRotation = useCallback(() => {
         const cube = cubeRef.current;
@@ -402,8 +546,8 @@ window.__ModuleLoader__.load({
         };
       }, [applyRotation]);
 
-      // The CSS default is a 520px cube, which overflows short panels. Size the
-      // cube from the panel box itself so a collapsed/expanded sidebar or a
+      // The cube is sized from the panel box itself (this is the only place
+      // that decides --cube-size), so a collapsed/expanded sidebar or a
       // laptop-height window both keep the whole cube on screen.
       useEffect(() => {
         const host = hostRef.current;
@@ -413,11 +557,17 @@ window.__ModuleLoader__.load({
           const width = host.clientWidth;
           const height = host.clientHeight;
           if (width === 0 || height === 0) return;
-          const base =
-            latest.current.mode === 'inside'
-              ? Math.min(600, width * 0.56, height * 0.8)
-              : Math.min(520, width * 0.46, height * 0.55);
-          const size = Math.round(clamp(base * ui.scale, 220, Math.min(width * 0.88, height * 0.86)));
+          const insideNow = latest.current.mode === 'inside';
+          const base = insideNow
+            ? Math.min(600, width * 0.56, height * 0.8)
+            : Math.min(520, width * 0.46, height * 0.55);
+          // Browse rests tilted under a shorter perspective, which magnifies
+          // the near edge; leave it more room than the face-on inside view.
+          const upper = insideNow
+            ? Math.min(width * 0.88, height * 0.86)
+            : Math.min(width * 0.8, height * 0.72);
+          const lower = Math.min(220, width * 0.8, height * 0.8);
+          const size = Math.round(clamp(base * ui.scale, Math.min(lower, upper), upper));
           root.style.setProperty('--cube-size', size + 'px');
         };
         fit();
@@ -430,6 +580,23 @@ window.__ModuleLoader__.load({
         return () => observer.disconnect();
       }, [mode, ui.scale]);
 
+      /**
+       * Inside the cube, the Workspace on the front face becomes the active
+       * one: open its remembered (or newest) Session, or show its empty state.
+       */
+      const settleInside = useCallback((slot, pageOverride) => {
+        const state = latest.current;
+        if (state.mode !== 'inside') return;
+        const workspace = state.items[(pageOverride ?? state.page) * FACES + slot];
+        if (workspace === undefined) return;
+        state.channel.update({ workspaceId: workspace.workspaceId });
+        const ids = workspace.sessionIds ?? [];
+        if (state.sessionId !== undefined && ids.includes(state.sessionId)) return;
+        const remembered = state.channel.getSnapshot().lastSession[workspace.workspaceId];
+        const target = remembered !== undefined && ids.includes(remembered) ? remembered : ids[0];
+        if (target !== undefined) state.actions.openSession(target);
+      }, []);
+
       const snap = useCallback(
         (targetRx, targetRy, options) => {
           const cube = cubeRef.current;
@@ -441,29 +608,17 @@ window.__ModuleLoader__.load({
           }
           applyRotation();
           window.clearTimeout(snapTimer.current);
+          // Reduced motion: CSS drops the transition, so settle right away
+          // instead of leaving the state 460ms behind the picture.
           snapTimer.current = window.setTimeout(() => {
             if (cubeRef.current !== null) cubeRef.current.classList.remove('snap');
             const slot = frontSlotOf(rotation.current.rx, rotation.current.ry);
             setFront(slot);
             setRotating(false);
-            if (silent) return;
-            const state = latest.current;
-            if (state.mode !== 'inside') return;
-            const workspace = state.items[state.page * FACES + slot];
-            if (workspace === undefined) return;
-            const insideCurrent =
-              state.sessionId !== undefined && (workspace.sessionIds ?? []).includes(state.sessionId);
-            if (insideCurrent) return;
-            const last = state.channel.getSnapshot().lastSession;
-            const remembered = last[workspace.workspaceId];
-            const rememberedOk =
-              remembered !== undefined && (workspace.sessionIds ?? []).includes(remembered);
-            const target = rememberedOk ? remembered : (workspace.sessionIds ?? [])[0];
-            state.channel.update({ workspaceId: workspace.workspaceId });
-            if (target !== undefined) state.actions.openSession(target);
-          }, SNAP_MS);
+            if (!silent) settleInside(slot);
+          }, snapDuration());
         },
-        [applyRotation],
+        [applyRotation, settleInside],
       );
 
       const rotateToFace = useCallback(
@@ -482,7 +637,48 @@ window.__ModuleLoader__.load({
         [snap],
       );
 
+      /**
+       * One face step: dx turns to the face on the right (+1) or left (-1),
+       * dy tips the cube to show the face above (-1) or below (+1).
+       */
+      const stepFace = useCallback(
+        (dx, dy) => {
+          const { rx, ry } = snapAttitude(rotation.current.rx, rotation.current.ry);
+          let nextRx = rx;
+          let nextRy = ry;
+          if (dx !== 0) {
+            nextRx = 0;
+            nextRy = ry - 90 * dx;
+          }
+          if (dy !== 0) nextRx = clamp(rx + 90 * dy, -90, 90);
+          if (nextRx === rx && nextRy === ry) return;
+          setRotating(true);
+          snap(nextRx, nextRy);
+        },
+        [snap],
+      );
+
       // -- Drag -----------------------------------------------------------
+      //
+      // A press only arms a drag. The cube starts turning once the pointer
+      // has travelled DRAG_SLOP pixels, so a plain click on a face (or the
+      // frame around the conversation) never snaps the cube or blanks the
+      // conversation for the length of a snap.
+
+      const beginRotation = useCallback((state) => {
+        state.moved = true;
+        window.clearTimeout(snapTimer.current);
+        if (cubeRef.current !== null) cubeRef.current.classList.remove('snap');
+        channel.update({ menuOpen: false });
+        setRotating(true);
+        if (stageRef.current !== null) stageRef.current.classList.add('grabbing');
+        try {
+          stageRef.current?.setPointerCapture(state.pointerId);
+        } catch (error) {
+          // Older engines refuse capture on non-primary pointers; dragging
+          // still works while the pointer stays over the stage.
+        }
+      }, [channel]);
 
       const onPointerDown = useCallback(
         (event) => {
@@ -496,27 +692,17 @@ window.__ModuleLoader__.load({
           // starts a rotation (not even from its header).
           if (target.closest('.cube') === null) return;
           if (target.closest('.face-conv') !== null) return;
-          window.clearTimeout(snapTimer.current);
           if (dragFrame.current !== 0) window.cancelAnimationFrame(dragFrame.current);
           dragFrame.current = 0;
           dragSample.current = null;
-          if (cubeRef.current !== null) cubeRef.current.classList.remove('snap');
-          channel.update({ menuOpen: false });
-          setRotating(true);
-          if (stageRef.current !== null) stageRef.current.classList.add('grabbing');
           drag.current = {
             pointerId: event.pointerId,
             originX: event.clientX,
             originY: event.clientY,
             rx: rotation.current.rx,
             ry: rotation.current.ry,
+            moved: false,
           };
-          try {
-            stageRef.current?.setPointerCapture(event.pointerId);
-          } catch (error) {
-            // Older engines refuse capture on non-primary pointers; dragging
-            // still works while the pointer stays over the stage.
-          }
         },
         [],
       );
@@ -529,7 +715,7 @@ window.__ModuleLoader__.load({
         const sample = dragSample.current;
         dragSample.current = null;
         const state = drag.current;
-        if (sample === null || state === null || state.pointerId !== sample.pointerId) return;
+        if (sample === null || state === null || !state.moved || state.pointerId !== sample.pointerId) return;
         const dx = sample.clientX - state.originX;
         const dy = sample.clientY - state.originY;
         rotation.current.ry = state.ry + dx * DRAG_YAW;
@@ -541,25 +727,36 @@ window.__ModuleLoader__.load({
         (event) => {
           const state = drag.current;
           if (state === null || state.pointerId !== event.pointerId) return;
+          if (!state.moved) {
+            const travel = Math.hypot(event.clientX - state.originX, event.clientY - state.originY);
+            if (travel < DRAG_SLOP) return;
+            beginRotation(state);
+          }
           dragSample.current = { pointerId: event.pointerId, clientX: event.clientX, clientY: event.clientY };
           if (dragFrame.current !== 0) return;
           dragFrame.current = window.requestAnimationFrame(flushDragSample);
         },
-        [flushDragSample],
+        [flushDragSample, beginRotation],
       );
 
       const onPointerUp = useCallback(
         (event) => {
           const state = drag.current;
           if (state === null || (event.pointerId !== undefined && state.pointerId !== event.pointerId)) return;
+          drag.current = null;
+          // Below the slop the press was a click: leave the cube alone.
+          if (!state.moved) return;
           // Consume the last sample before the snap attitude is read, so the
           // cube settles on the rotation the pointer actually reached.
           if (dragFrame.current !== 0) {
             window.cancelAnimationFrame(dragFrame.current);
             dragFrame.current = 0;
           }
-          if (dragSample.current !== null) flushDragSample();
-          drag.current = null;
+          if (dragSample.current !== null) {
+            drag.current = state;
+            flushDragSample();
+            drag.current = null;
+          }
           if (stageRef.current !== null) stageRef.current.classList.remove('grabbing');
           try {
             stageRef.current?.releasePointerCapture(state.pointerId);
@@ -574,12 +771,20 @@ window.__ModuleLoader__.load({
 
       // -- Synchronise the cube with the selected Session ------------------
 
-      // Selecting another Session (dropdown, sidebar, host navigation) updates
-      // the face content in place. The cube only turns when the user drags it
-      // or picks a Session on another face, never as a side effect of selection.
-
+      // Selecting a Session in another Workspace (sidebar, host navigation)
+      // turns that Workspace's face to the front, so the face, the header and
+      // the conversation always name the same Workspace. Switching Sessions
+      // within the front Workspace (the dropdown) never turns the cube.
       useEffect(() => {
-        if (sessionWorkspace !== undefined) channel.update({ workspaceId: sessionWorkspace.workspaceId });
+        if (sessionWorkspace === undefined) return;
+        channel.update({ workspaceId: sessionWorkspace.workspaceId });
+        if (drag.current !== null) return;
+        const abs = items.indexOf(sessionWorkspace);
+        if (abs < 0) return;
+        const targetPage = Math.floor(abs / FACES);
+        const slot = abs % FACES;
+        if (targetPage !== latest.current.page) channel.update({ page: targetPage });
+        if (frontSlotOf(rotation.current.rx, rotation.current.ry) !== slot) rotateToFace(slot, { silent: true });
       }, [sessionWorkspace?.workspaceId]);
 
       // -- Follow the selected Session into the cube -----------------------
@@ -598,6 +803,7 @@ window.__ModuleLoader__.load({
       const enterWorkspace = useCallback(
         (workspace, slot) => {
           if (workspace === undefined) return;
+          pendingFocus.current = 'conv';
           channel.update({ mode: 'inside', closed: false, workspaceId: workspace.workspaceId });
           rotateToFace(slot);
         },
@@ -608,6 +814,7 @@ window.__ModuleLoader__.load({
         (workspace, slot, targetSessionId) => {
           if (workspace === undefined) return;
           const last = channel.getSnapshot().lastSession;
+          pendingFocus.current = 'conv';
           channel.update({
             mode: 'inside',
             closed: false,
@@ -623,6 +830,7 @@ window.__ModuleLoader__.load({
       const newSession = useCallback(
         (workspace) => {
           const target = workspace ?? activeWorkspace;
+          pendingFocus.current = 'conv';
           if (target === undefined) {
             actions.startSession();
             return;
@@ -630,7 +838,7 @@ window.__ModuleLoader__.load({
           channel.update({ mode: 'inside', closed: false, workspaceId: target.workspaceId });
           actions.startSession(target.workspaceId);
           const abs = items.indexOf(target);
-          if (abs >= 0) rotateToFace(abs % FACES);
+          if (abs >= 0) rotateToFace(abs % FACES, { silent: true });
         },
         [actions, activeWorkspace, channel, items, rotateToFace],
       );
@@ -639,9 +847,11 @@ window.__ModuleLoader__.load({
         (nextId) => {
           const workspace = items.find((item) => (item.sessionIds ?? []).includes(nextId));
           const last = channel.getSnapshot().lastSession;
+          pendingFocus.current = 'conv';
           channel.update({
             closed: false,
             mode: 'inside',
+            menuOpen: false,
             ...(workspace === undefined
               ? {}
               : {
@@ -655,12 +865,129 @@ window.__ModuleLoader__.load({
       );
 
       const closeConversation = useCallback(() => {
+        pendingFocus.current = 'cube';
         channel.update({ mode: 'browse', closed: true, menuOpen: false });
       }, [channel]);
 
+      const goPage = useCallback(
+        (next) => {
+          const state = latest.current;
+          const target = clamp(next, 0, state.pageCount - 1);
+          if (target === state.page) return;
+          channel.update({ page: target, menuOpen: false });
+          settleInside(frontSlotOf(rotation.current.rx, rotation.current.ry), target);
+        },
+        [channel, settleInside],
+      );
+
+      // -- Focus follows the view ------------------------------------------
+      //
+      // Opening a conversation moves focus into it once the cube has settled
+      // (the face hides its content while turning, which would otherwise drop
+      // focus on <body>); leaving the conversation returns focus to the cube.
+
+      useEffect(() => {
+        if (rotating || pendingFocus.current === null) return;
+        const intent = pendingFocus.current;
+        if (intent === 'conv' && !inside) return;
+        pendingFocus.current = null;
+        if (intent === 'conv') {
+          focusWhenReady(() => rootRef.current, [
+            '.face-conv textarea',
+            '.face-conv [contenteditable="true"]',
+            '.face-conv .session-select',
+          ]);
+        } else {
+          focusWhenReady(() => rootRef.current, ['.cube-shell'], 4);
+        }
+      });
+
+      // -- Non-front faces leave the tab order ------------------------------
+      //
+      // Faces turned away from the viewer are hidden from assistive tech
+      // (aria-hidden on the face) and their controls are made inert, so Tab
+      // never lands on an invisible or mirrored control. Only the content
+      // layers go inert: the face itself still takes a drag.
+      useEffect(() => {
+        const cube = cubeRef.current;
+        if (cube === null) return;
+        for (const face of cube.children) {
+          const away = face.getAttribute('data-slot') !== String(front);
+          for (const layer of face.children) {
+            if (layer.classList.contains('face-conv')) continue;
+            if ('inert' in layer && layer.inert !== away) layer.inert = away;
+          }
+        }
+      });
+
+      // -- Announcements ----------------------------------------------------
+
+      const announce = useCallback((text) => {
+        // Clear first so the same text is announced again when it repeats.
+        setAnnouncement('');
+        window.requestAnimationFrame(() => setAnnouncement(text));
+      }, []);
+
+      const frontWorkspace = items[page * FACES + front];
+      const faceName = (workspace) =>
+        workspace === undefined ? (loading ? t('workspace.loading') : t('workspace.emptySlot')) : workspace.title;
+      const faceText = t('a11y.face', { index: front + 1, total: FACES, name: faceName(frontWorkspace) });
+
+      const announcedFace = useRef(null);
+      useEffect(() => {
+        const key = page + ':' + front;
+        if (announcedFace.current === null) {
+          announcedFace.current = key;
+          return;
+        }
+        if (announcedFace.current === key) return;
+        announcedFace.current = key;
+        announce(faceText);
+      }, [page, front, faceText, announce]);
+
+      const lastRunning = useRef({ id: sessionId, running });
+      useEffect(() => {
+        const previous = lastRunning.current;
+        lastRunning.current = { id: sessionId, running };
+        if (previous.id !== sessionId || previous.running === running || sessionRow === undefined) return;
+        announce(t(running ? 'a11y.running' : 'a11y.idle', { name: sessionRow.displayTitle }));
+      }, [sessionId, running]);
+
+      // Failures from host calls surface as a short toast instead of only a
+      // console warning.
+      useEffect(() => {
+        if (ui.notice === null) return undefined;
+        const timer = window.setTimeout(() => channel.update({ notice: null }), 5000);
+        return () => window.clearTimeout(timer);
+      }, [ui.notice, channel]);
+
       // -- Header menu ----------------------------------------------------
 
-      const menuRef = useRef(null);
+      const toggleMenu = useCallback(() => {
+        if (channel.getSnapshot().menuOpen) {
+          channel.update({ menuOpen: false });
+          return;
+        }
+        // The face clips the menu: measure the room under the trigger and
+        // open upward or shorten the list when the cube is small.
+        const box = measureInFace(rootRef.current?.querySelector('.face-conv .session-select'));
+        if (box === null) {
+          setMenuBox(null);
+        } else {
+          const margin = 12;
+          const below = (box.faceRect.bottom - box.rect.bottom) / box.scale - margin;
+          const above = (box.rect.top - box.faceRect.top) / box.scale - margin;
+          const up = below < 160 && above > below;
+          setMenuBox({ up, maxHeight: Math.max(96, Math.min(258, Math.floor(up ? above : below))) });
+        }
+        channel.update({ menuOpen: true });
+        focusWhenReady(
+          () => rootRef.current,
+          ['.session-menu [aria-current="true"]', '.session-menu button'],
+          4,
+        );
+      }, [channel]);
+
       useEffect(() => {
         if (!ui.menuOpen) return undefined;
         const onDocumentPointerDown = (event) => {
@@ -668,24 +995,40 @@ window.__ModuleLoader__.load({
           if (target instanceof Element && target.closest('.conv-sessionline') !== null) return;
           channel.update({ menuOpen: false });
         };
-        const onKeyDown = (event) => {
-          if (event.key === 'Escape') channel.update({ menuOpen: false });
-        };
         document.addEventListener('pointerdown', onDocumentPointerDown, true);
-        document.addEventListener('keydown', onKeyDown, true);
         return () => {
           document.removeEventListener('pointerdown', onDocumentPointerDown, true);
-          document.removeEventListener('keydown', onKeyDown, true);
         };
       }, [ui.menuOpen, channel]);
 
-      // Escape leaves the cube once no menu is open.
+      // -- Escape: one layer per press ---------------------------------------
+      //
+      // Session menu, then the "more" dialog, the guide, the dock, and only
+      // then the conversation. (The composer's mode menu stops the event
+      // itself.) IME composition keeps Escape for itself.
       useEffect(() => {
         const onKeyDown = (event) => {
-          if (event.key !== 'Escape') return;
+          if (event.key !== 'Escape' || event.isComposing || event.keyCode === 229) return;
           const state = channel.getSnapshot();
-          if (state.menuOpen || state.dockOpen) return;
-          if (state.mode === 'inside') channel.update({ mode: 'browse', closed: true });
+          const root = rootRef.current;
+          if (state.menuOpen) {
+            channel.update({ menuOpen: false });
+            focusWhenReady(() => root, ['.face-conv .session-select'], 2);
+          } else if (state.moreOpen) {
+            channel.update({ moreOpen: false });
+          } else if (state.tour !== null && state.mode !== 'inside') {
+            channel.update({ tour: null });
+            writeStored(ONBOARD_KEY, '1');
+          } else if (state.dockOpen) {
+            channel.update({ dockOpen: false });
+            focusWhenReady(() => root, ['.dock-toggle'], 2);
+          } else if (state.mode === 'inside') {
+            pendingFocus.current = 'cube';
+            channel.update({ mode: 'browse', closed: true });
+          } else {
+            return;
+          }
+          event.preventDefault();
         };
         window.addEventListener('keydown', onKeyDown);
         return () => {
@@ -693,15 +1036,103 @@ window.__ModuleLoader__.load({
         };
       }, [channel]);
 
+      // -- Keyboard rotation ------------------------------------------------
+
+      const onCubeKeyDown = useCallback(
+        (event) => {
+          if (event.target !== event.currentTarget) return;
+          switch (event.key) {
+            case 'ArrowLeft':
+              stepFace(-1, 0);
+              break;
+            case 'ArrowRight':
+              stepFace(1, 0);
+              break;
+            case 'ArrowUp':
+              stepFace(0, -1);
+              break;
+            case 'ArrowDown':
+              stepFace(0, 1);
+              break;
+            case 'Home':
+              rotateToFace(0);
+              break;
+            case 'Enter':
+            case ' ': {
+              const state = latest.current;
+              const slot = frontSlotOf(rotation.current.rx, rotation.current.ry);
+              const workspace = state.items[state.page * FACES + slot];
+              if (workspace === undefined || state.mode === 'inside') return;
+              enterWorkspace(workspace, slot);
+              break;
+            }
+            default:
+              return;
+          }
+          event.preventDefault();
+        },
+        [stepFace, rotateToFace, enterWorkspace],
+      );
+
       // -- Derived copy ---------------------------------------------------
 
-      const pageStart = page * FACES + 1;
-      const pageEnd = Math.min(items.length, page * FACES + FACES);
-      const hint = inside ? t('hint.inside') : t('hint.browse');
-      const frontWorkspace = items[page * FACES + front];
+      const sessionCount = (workspace) =>
+        countLabel(t, sessionsOf(workspace, sessionState).length, 'count.sessionOne', 'count.sessions');
       const titleWorkspace = inside ? activeWorkspace ?? frontWorkspace : frontWorkspace;
-      const emptyWorkspace =
-        mode === 'inside' && sessionId === undefined ? activeWorkspace : undefined;
+      const emptyWorkspace = inside && !showConversation ? activeWorkspace : undefined;
+      const conversationTitle = showConversation ? sessionRow?.displayTitle : undefined;
+
+      const pager = (compact) =>
+        pageCount > 1
+          ? h(
+              'div',
+              { className: 'pager' + (compact ? ' compact' : ''), role: 'group', 'aria-label': t('page.title') },
+              h(
+                'button',
+                {
+                  type: 'button',
+                  'aria-label': t('page.prev'),
+                  title: t('page.prev'),
+                  disabled: page === 0,
+                  onClick: () => goPage(page - 1),
+                },
+                h(Icon, { name: 'chevronLeft' }),
+              ),
+              h(
+                'span',
+                {},
+                t('page.label', {
+                  from: page * FACES + 1,
+                  to: Math.min(items.length, page * FACES + FACES),
+                  total: items.length,
+                }),
+              ),
+              h(
+                'button',
+                {
+                  type: 'button',
+                  'aria-label': t('page.next'),
+                  title: t('page.next'),
+                  disabled: page >= pageCount - 1,
+                  onClick: () => goPage(page + 1),
+                },
+                h(Icon, { name: 'chevronRight' }),
+              ),
+            )
+          : null;
+
+      const stepButton = (icon, label, dx, dy, className) =>
+        h(
+          'button',
+          {
+            type: 'button',
+            className,
+            'aria-label': label,
+            title: label,
+            onClick: () => stepFace(dx, dy),
+          },
+          h(Icon, { name: icon }),
+        );
 
       // -- Render ---------------------------------------------------------
 
@@ -719,16 +1150,14 @@ window.__ModuleLoader__.load({
                   'button',
                   {
                     type: 'button',
-                    className: 'ghost-btn',
-                    onClick: () => {
-                      actions.startSession(emptyWorkspace.workspaceId);
-                    },
+                    className: 'primary-btn',
+                    onClick: () => newSession(emptyWorkspace),
                   },
                   h(Icon, { name: 'plus' }),
                   t('sessions.new'),
                 ),
               ),
-        [emptyWorkspace, sessionId, t, actions, renderFactorySlot],
+        [emptyWorkspace, sessionId, t, newSession, renderFactorySlot],
       );
 
       // Scrolling inside the embedded conversation must not depend on which
@@ -792,7 +1221,7 @@ window.__ModuleLoader__.load({
       // cube. Rotating carries it out of view with that Workspace and the next
       // face brings its own Session surface in.
       const conversationPanel = useMemo(() => h(
-        'div',
+        'section',
         { className: 'face-conv', 'data-cube-conversation': '', 'aria-label': t('conv.title') },
         h(
           'header',
@@ -807,10 +1236,17 @@ window.__ModuleLoader__.load({
               h('span', { className: 'conv-path' }, activeWorkspace?.path ?? ''),
             ),
             h(
+              'div',
+              { className: 'conv-nav' },
+              stepButton('chevronLeft', t('face.left'), -1, 0, 'icon-btn'),
+              stepButton('chevronRight', t('face.right'), 1, 0, 'icon-btn'),
+              pager(true),
+            ),
+            h(
               'button',
               {
                 type: 'button',
-                className: 'icon-btn',
+                className: 'icon-btn conv-close',
                 title: t('conv.close'),
                 'aria-label': t('conv.close'),
                 onClick: closeConversation,
@@ -820,51 +1256,58 @@ window.__ModuleLoader__.load({
           ),
           h(
             'div',
-            { className: 'conv-sessionline', ref: menuRef },
+            { className: 'conv-sessionline' },
             h(
               'button',
               {
                 type: 'button',
                 className: 'session-select',
-                'aria-haspopup': 'listbox',
                 'aria-expanded': ui.menuOpen ? 'true' : 'false',
-                onClick: () => channel.update({ menuOpen: !ui.menuOpen }),
+                'aria-controls': 'cube-ui-session-menu',
+                onClick: toggleMenu,
               },
               h(Icon, { name: 'list', className: 'ss-ico' }),
-              h('span', { className: 'ss-label' }, sessionRow?.displayTitle ?? t('sessions.empty')),
-              h(
-                'span',
-                { className: 'ss-status' + (running ? ' running' : '') },
-                running ? t('sessions.running') : t('sessions.idle'),
-              ),
+              h('span', { className: 'ss-label' }, conversationTitle ?? t('sessions.empty')),
+              conversationTitle === undefined
+                ? null
+                : h(
+                    'span',
+                    { className: 'ss-status' + (running ? ' running' : '') },
+                    running ? t('sessions.running') : t('sessions.idle'),
+                  ),
               h('span', { className: 'ss-caret', 'aria-hidden': 'true' }),
             ),
             ui.menuOpen
               ? h(
                   'div',
-                  { className: 'session-menu', role: 'listbox' },
-                  activeSessions.map((row) =>
-                    h(
+                  {
+                    className: 'session-menu' + (menuBox?.up ? ' up' : ''),
+                    id: 'cube-ui-session-menu',
+                    role: 'group',
+                    'aria-label': t('sessions.menu'),
+                    style: menuBox === null ? undefined : { maxHeight: menuBox.maxHeight + 'px' },
+                    onKeyDown: onMenuKeyDown,
+                  },
+                  activeSessions.map((row) => {
+                    const rowRunning = isRunning(row, sessionStatus);
+                    const current = showConversation && row.id === sessionId;
+                    return h(
                       'button',
                       {
                         key: row.id,
                         type: 'button',
-                        role: 'option',
-                        'aria-selected': row.id === sessionId ? 'true' : 'false',
-                        className: row.id === sessionId ? 'current' : undefined,
-                        onClick: () => {
-                          channel.update({ menuOpen: false });
-                          selectSession(row.id);
-                        },
+                        'aria-current': current ? 'true' : undefined,
+                        className: current ? 'current' : undefined,
+                        onClick: () => selectSession(row.id),
                       },
-                      h('span', {}, row.displayTitle),
+                      h('span', { className: 'mi-title' }, row.displayTitle),
                       h(
                         'span',
-                        { className: 'mi-meta' },
-                        row.running ? t('sessions.running') : shortTime(row.updatedAt),
+                        { className: 'mi-meta' + (rowRunning ? ' running' : '') },
+                        rowRunning ? t('sessions.running') : shortTime(row.updatedAt),
                       ),
-                    ),
-                  ),
+                    );
+                  }),
                   h(
                     'button',
                     {
@@ -885,7 +1328,7 @@ window.__ModuleLoader__.load({
         h(
           'div',
           {
-            className: 'conv-body' + (sessionId === undefined ? '' : ' embedded'),
+            className: 'conv-body' + (emptyWorkspace === undefined && sessionId !== undefined ? ' embedded' : ''),
             'data-cube-conversation-body': '',
           },
           conversationBody,
@@ -895,14 +1338,24 @@ window.__ModuleLoader__.load({
         activeWorkspace,
         closeConversation,
         ui.menuOpen,
-        sessionRow,
+        menuBox,
+        conversationTitle,
         running,
         activeSessions,
+        sessionStatus,
         sessionId,
+        showConversation,
+        emptyWorkspace,
         selectSession,
         newSession,
+        toggleMenu,
         conversationBody,
         channel,
+        page,
+        pageCount,
+        items.length,
+        goPage,
+        stepFace,
       ]);
 
       const faces = useMemo(() => pageWorkspaces.map(({ slot, abs, workspace }) => {
@@ -910,6 +1363,7 @@ window.__ModuleLoader__.load({
         const isFront = slot === front;
         const hosting = inside && isFront && workspace !== undefined;
         const selectedWorkspace = workspace !== undefined && workspace.workspaceId === activeWorkspace?.workspaceId;
+        const count = workspace === undefined ? '' : countLabel(t, rows.length, 'count.sessionOne', 'count.sessions');
         return h(
           'div',
           {
@@ -918,9 +1372,11 @@ window.__ModuleLoader__.load({
               'face' +
               (isFront ? ' front' : '') +
               (hosting ? ' hosting' : '') +
-              (selectedWorkspace ? ' selected' : ''),
+              (selectedWorkspace ? ' selected' : '') +
+              (workspace === undefined ? (loading ? ' loading' : ' vacant') : ''),
             'data-slot': String(slot),
             'data-abs': String(abs),
+            'aria-hidden': isFront ? undefined : 'true',
           },
           h(
             'div',
@@ -928,77 +1384,82 @@ window.__ModuleLoader__.load({
             h(
               'div',
               { className: 'face-head' },
-              h('span', { className: 'face-idx' }, pad2(abs + 1)),
-              h('h2', { className: 'face-title' }, workspace === undefined ? t('workspace.emptySlot') : workspace.title),
-              h(
-                'span',
-                { className: 'face-summary' },
-                workspace === undefined ? '' : rows.length + ' ' + t('workspace.count'),
-              ),
+              h('span', { className: 'face-idx', 'aria-hidden': 'true' }, pad2(abs + 1)),
+              h('h2', { className: 'face-title' }, faceName(workspace)),
+              h('span', { className: 'face-summary' }, count),
             ),
             h(
               'div',
               { className: 'face-path' },
-              workspace === undefined ? t('workspace.emptyPath') : workspace.path,
+              workspace === undefined ? (loading ? '' : t('workspace.emptyPath')) : workspace.path,
             ),
             h(
               'ul',
-              { className: 'sessions' },
+              { className: 'sessions', 'aria-label': workspace === undefined ? undefined : t('sessions.list') },
               workspace === undefined
-                ? h('li', { className: 'face-empty' }, '—')
+                ? h('li', { className: 'face-empty' }, loading ? t('workspace.loading') : t('workspace.emptyHint'))
                 : rows.length === 0
                   ? h('li', { className: 'face-empty' }, t('sessions.empty'))
-                  : rows.map((row) =>
-                      h(
+                  : rows.map((row) => {
+                      const rowRunning = isRunning(row, sessionStatus);
+                      return h(
                         'li',
-                        {
-                          key: row.id,
-                          className: 'session' + (row.id === sessionId ? ' current' : ''),
-                          role: 'button',
-                          tabIndex: 0,
-                          'data-sid': row.id,
-                          onClick: () => openFromFace(workspace, slot, row.id),
-                          onKeyDown: (event) => {
-                            if (event.key === 'Enter' || event.key === ' ') {
-                              event.preventDefault();
-                              openFromFace(workspace, slot, row.id);
-                            }
-                          },
-                        },
-                        h('span', { className: 'stitle' }, row.displayTitle),
+                        { key: row.id, className: 'session-item' },
                         h(
-                          'span',
-                          { className: 'smeta' },
-                          row.running ? h('i', { className: 'dot', 'aria-hidden': 'true' }) : null,
-                          h('span', {}, shortTime(row.updatedAt)),
+                          'button',
+                          {
+                            type: 'button',
+                            className: 'session',
+                            'aria-current': row.id === sessionId ? 'true' : undefined,
+                            'data-sid': row.id,
+                            onClick: () => openFromFace(workspace, slot, row.id),
+                          },
+                          h('span', { className: 'stitle' }, row.displayTitle),
+                          h(
+                            'span',
+                            { className: 'smeta' },
+                            rowRunning
+                              ? h(
+                                  'span',
+                                  { className: 'run-badge' },
+                                  h('i', { className: 'dot', 'aria-hidden': 'true' }),
+                                  t('sessions.running'),
+                                )
+                              : null,
+                            h('span', {}, shortTime(row.updatedAt)),
+                          ),
                         ),
-                      ),
-                    ),
+                      );
+                    }),
             ),
             h(
               'div',
               { className: 'face-foot' },
               workspace === undefined
-                ? null
+                ? loading
+                  ? null
+                  : h(
+                      'button',
+                      { type: 'button', className: 'ghost-btn', onClick: () => actions.openSidebar() },
+                      h(Icon, { name: 'layers' }),
+                      t('workspace.addCta'),
+                    )
                 : h(
                     'button',
                     {
                       type: 'button',
-                      className: 'ghost-btn',
+                      className: 'primary-btn',
                       onClick: () => {
+                        pendingFocus.current = 'conv';
                         channel.update({ mode: 'inside', closed: false, workspaceId: workspace.workspaceId });
-                        rotateToFace(slot);
+                        rotateToFace(slot, { silent: true });
                         actions.startSession(workspace.workspaceId);
                       },
                     },
                     h(Icon, { name: 'plus' }),
                     t('sessions.new'),
                   ),
-              h(
-                'span',
-                { className: 'face-count' },
-                workspace === undefined ? '' : rows.length + ' ' + t('workspace.count'),
-              ),
+              h('span', { className: 'face-count' }, count),
             ),
           ),
           h(
@@ -1008,27 +1469,14 @@ window.__ModuleLoader__.load({
             h(
               'div',
               { className: 'room-foot' },
-              h(
-                'span',
-                {
-                  className: 'room-title',
-                  role: 'button',
-                  tabIndex: 0,
-                  onClick: () => rotateToFace(slot),
-                  onKeyDown: (event) => {
-                    if (event.key === 'Enter' || event.key === ' ') {
-                      event.preventDefault();
-                      rotateToFace(slot);
-                    }
-                  },
-                },
-                workspace === undefined ? '' : workspace.title,
-              ),
-              h(
-                'span',
-                { className: 'room-count' },
-                workspace === undefined ? '' : rows.length + ' ' + t('workspace.count'),
-              ),
+              workspace === undefined
+                ? h('span', { className: 'room-title' }, t('workspace.emptySlot'))
+                : h(
+                    'button',
+                    { type: 'button', className: 'room-title', onClick: () => rotateToFace(slot) },
+                    workspace.title,
+                  ),
+              h('span', { className: 'room-count' }, count),
             ),
           ),
           hosting ? conversationPanel : null,
@@ -1036,9 +1484,11 @@ window.__ModuleLoader__.load({
       }), [
         pageWorkspaces,
         sessionState,
+        sessionStatus,
         sessionId,
         front,
         inside,
+        loading,
         activeWorkspace,
         t,
         conversationPanel,
@@ -1047,6 +1497,17 @@ window.__ModuleLoader__.load({
         channel,
         actions,
       ]);
+
+      const tourSteps = [
+        { title: t('tour.rotateTitle'), body: t('tour.rotateBody') },
+        { title: t('tour.openTitle'), body: t('tour.openBody') },
+        { title: t('tour.backTitle'), body: t('tour.backBody') },
+      ];
+      const tourStep = !inside && !loading && !failed && ui.tour !== null ? tourSteps[ui.tour] : undefined;
+      const finishTour = () => {
+        writeStored(ONBOARD_KEY, '1');
+        channel.update({ tour: null });
+      };
 
       return h(
         'div',
@@ -1061,76 +1522,144 @@ window.__ModuleLoader__.load({
             ref: rootRef,
           },
           h(
-            'main',
-            {
-            className: 'stage' + (inside ? ' inside' : ''),
-            'data-mode': mode,
-            ref: stageRef,
-            onPointerDown,
-            onPointerMove,
-            onPointerUp,
-            onPointerCancel: onPointerUp,
-            onLostPointerCapture: onPointerUp,
-          },
-          h('div', { className: 'floor-glow', 'aria-hidden': 'true' }),
-          h(
             'div',
             {
-              className: 'cube-shell' + (pageCount > 1 ? ' paged' : ''),
-              'aria-hidden': inside ? 'true' : undefined,
+              className: 'stage' + (inside ? ' inside' : ''),
+              'data-mode': mode,
+              ref: stageRef,
+              onPointerDown,
+              onPointerMove,
+              onPointerUp,
+              onPointerCancel: onPointerUp,
+              onLostPointerCapture: onPointerUp,
             },
-            h('div', { className: 'cube', ref: cubeRef }, faces),
+            h('div', { className: 'floor-glow', 'aria-hidden': 'true' }),
+            h(
+              'div',
+              {
+                className: 'cube-shell',
+                ref: shellRef,
+                tabIndex: 0,
+                role: 'group',
+                'aria-roledescription': t('a11y.cubeRole'),
+                'aria-label': t('a11y.cube') + ' — ' + faceText,
+                'aria-describedby': 'cube-ui-keys',
+                'aria-busy': loading ? 'true' : undefined,
+                onKeyDown: onCubeKeyDown,
+              },
+              h('div', { className: 'cube', ref: cubeRef }, faces),
+            ),
+            failed
+              ? h(
+                  'div',
+                  { className: 'stage-error', role: 'alert' },
+                  h('p', {}, t('workspace.error')),
+                  h(
+                    'button',
+                    { type: 'button', className: 'primary-btn', onClick: () => window.location.reload() },
+                    t('workspace.retry'),
+                  ),
+                )
+              : null,
           ),
-          ),
+          h('p', { id: 'cube-ui-keys', className: SR_ONLY }, t('a11y.cubeKeys')),
+          h('div', { className: SR_ONLY, role: 'status', 'aria-live': 'polite', 'aria-atomic': 'true' }, announcement),
           h(
             'div',
             { className: 'stage-title' },
             h(
               'div',
               { className: 'st-line' },
-              h('span', { className: 'st-name' }, titleWorkspace?.title ?? t('workspace.none')),
               h(
                 'span',
-                { className: 'st-meta' },
-                titleWorkspace === undefined
-                  ? ''
-                  : sessionsOf(titleWorkspace, sessionState).length + ' ' + t('workspace.count'),
+                { className: 'st-name' },
+                titleWorkspace?.title ??
+                  (loading ? t('workspace.loading') : items.length === 0 ? t('workspace.none') : t('workspace.emptySlot')),
               ),
+              h('span', { className: 'st-meta' }, titleWorkspace === undefined ? '' : sessionCount(titleWorkspace)),
             ),
             inside ? h('span', { className: 'st-hint' }, t('hint.insideShort')) : null,
           ),
           h(
             'div',
             { className: 'hud' },
-            pageCount > 1
-              ? h(
+            h(
+              'div',
+              { className: 'hud-row' },
+              h(
+                'div',
+                { className: 'face-nav', role: 'group', 'aria-label': t('face.nav') },
+                stepButton('chevronLeft', t('face.left'), -1, 0),
+                stepButton('chevronUp', t('face.up'), 0, -1),
+                h('span', { className: 'face-nav-label' }, t('face.label', { index: front + 1, total: FACES })),
+                stepButton('chevronDown', t('face.down'), 0, 1),
+                stepButton('chevronRight', t('face.right'), 1, 0),
+              ),
+              pageCount > 1
+                ? pager(false)
+                : items.length > 0
+                  ? h(
+                      'div',
+                      { className: 'pager' },
+                      h('span', {}, countLabel(t, items.length, 'count.workspaceOne', 'count.workspaces')),
+                    )
+                  : null,
+            ),
+            ui.hintHidden
+              ? null
+              : h(
                   'div',
-                  { className: 'pager' },
+                  { className: 'hud-hint' },
+                  h('span', {}, t('hint.browse')),
                   h(
                     'button',
                     {
                       type: 'button',
-                      'aria-label': t('page.prev'),
-                      title: t('page.prev'),
-                      onClick: () => channel.update({ page: (page - 1 + pageCount) % pageCount }),
+                      className: 'hint-close',
+                      'aria-label': t('hint.dismiss'),
+                      title: t('hint.dismiss'),
+                      onClick: () => {
+                        writeStored(HINT_KEY, '1');
+                        channel.update({ hintHidden: true });
+                      },
                     },
-                    h(Icon, { name: 'chevronLeft' }),
+                    h(Icon, { name: 'close' }),
                   ),
-                  h('span', {}, t('page.label', { from: pageStart, to: pageEnd, total: items.length })),
-                  h(
-                    'button',
-                    {
-                      type: 'button',
-                      'aria-label': t('page.next'),
-                      title: t('page.next'),
-                      onClick: () => channel.update({ page: (page + 1) % pageCount }),
-                    },
-                    h(Icon, { name: 'chevronRight' }),
-                  ),
-                )
-              : h('div', { className: 'pager' }, items.length > 0 ? items.length + ' ' + t('workspace.total') : ''),
-            h('div', { className: 'hud-hint' }, hint),
+                ),
           ),
+          tourStep === undefined
+            ? null
+            : h(
+                'section',
+                { className: 'coach', 'aria-labelledby': 'cube-ui-coach-title' },
+                h(
+                  'p',
+                  { className: 'coach-step' },
+                  t('tour.label') + ' · ' + t('tour.step', { index: ui.tour + 1, total: tourSteps.length }),
+                ),
+                h('h2', { id: 'cube-ui-coach-title' }, tourStep.title),
+                h('p', { className: 'coach-body' }, tourStep.body),
+                h(
+                  'div',
+                  { className: 'coach-actions' },
+                  h('button', { type: 'button', className: 'ghost-btn', onClick: finishTour }, t('tour.skip')),
+                  h(
+                    'button',
+                    {
+                      type: 'button',
+                      className: 'primary-btn',
+                      onClick: () => {
+                        if (ui.tour + 1 >= tourSteps.length) finishTour();
+                        else channel.update({ tour: ui.tour + 1 });
+                      },
+                    },
+                    ui.tour + 1 >= tourSteps.length ? t('tour.done') : t('tour.next'),
+                  ),
+                ),
+              ),
+          ui.notice === null
+            ? null
+            : h('div', { className: 'cube-toast', role: 'status' }, t(ui.notice.key)),
           h(CubeChrome, { usePanelInfo, useWorkspaces, channel, actions, t }),
         ),
       );
@@ -1140,26 +1669,41 @@ window.__ModuleLoader__.load({
     // Overlay chrome: diamond navigation and the dock
     // ---------------------------------------------------------------------
 
+    /** Electron routes keys through a native bridge; synthetic shortcuts fail. */
+    const IS_DESKTOP = typeof navigator !== 'undefined' && /Electron/i.test(navigator.userAgent ?? '');
+
     function CubeChrome(props) {
       const { usePanelInfo, useWorkspaces, channel, actions, t } = props;
       const panelInfo = usePanelInfo((state) => state);
       const workspaceState = useWorkspaces((state) => state);
       const ui = useChannel(channel);
-      const [moreOpen, setMoreOpen] = useState(false);
+      const moreOpen = ui.moreOpen;
       const [tip, setTip] = useState(null);
       const [diag, setDiag] = useState(null);
+      const overlayRef = useRef(null);
+      const returnFocus = useRef(null);
 
       // The chrome belongs to the cube surface; global panels keep their own.
       const cubeVisible = panelInfo?.activePanelId === null || panelInfo?.activePanelId === undefined;
 
+      // The dialog is modal: everything behind it goes inert, focus starts on
+      // its first control and returns to the opener when it closes.
       useEffect(() => {
         if (!moreOpen) return undefined;
-        const onKeyDown = (event) => {
-          if (event.key === 'Escape') setMoreOpen(false);
-        };
-        window.addEventListener('keydown', onKeyDown);
+        const overlay = overlayRef.current;
+        const root = overlay === null ? null : overlay.parentElement;
+        const fenced = [];
+        if (root !== null) for (const node of root.children) if (node !== overlay) fenced.push(node);
+        if (overlay !== null) {
+          for (const node of overlay.children) if (!node.classList.contains('modal-backdrop')) fenced.push(node);
+        }
+        for (const node of fenced) if ('inert' in node) node.inert = true;
+        focusWhenReady(() => overlayRef.current, ['.modal button'], 4);
         return () => {
-          window.removeEventListener('keydown', onKeyDown);
+          for (const node of fenced) if ('inert' in node) node.inert = false;
+          const back = returnFocus.current;
+          returnFocus.current = null;
+          if (back !== null && back.isConnected && typeof back.focus === 'function') back.focus({ preventScroll: true });
         };
       }, [moreOpen]);
 
@@ -1172,9 +1716,11 @@ window.__ModuleLoader__.load({
           ? items.find((item) => (item.sessionIds ?? []).includes(ui.sessionId))?.workspaceId
           : undefined);
 
+      const closeMore = () => channel.update({ moreOpen: false });
+
       const startSession = () => {
-        setMoreOpen(false);
         channel.update({
+          moreOpen: false,
           mode: 'inside',
           closed: false,
           ...(targetWorkspaceId === undefined ? {} : { workspaceId: targetWorkspaceId }),
@@ -1183,8 +1729,17 @@ window.__ModuleLoader__.load({
       };
 
       const openPanel = (panelId) => {
-        setMoreOpen(false);
+        closeMore();
         actions.selectPanel(panelId);
+      };
+
+      const openMore = () => {
+        if (moreOpen) {
+          closeMore();
+          return;
+        }
+        returnFocus.current = document.activeElement;
+        channel.update({ moreOpen: true, dockOpen: false });
       };
 
       const openDock = () => channel.update({ dockOpen: !ui.dockOpen });
@@ -1199,7 +1754,7 @@ window.__ModuleLoader__.load({
         { id: 'session', icon: 'plus', label: t('nav.session'), run: startSession },
         { id: 'plugins', icon: 'grid', label: t('nav.plugins'), run: () => openPanel('plugins') },
         { id: 'schedules', icon: 'clock', label: t('nav.schedules'), run: () => openPanel('schedules') },
-        { id: 'more', icon: 'dots', label: t('nav.more'), run: () => setMoreOpen((open) => !open) },
+        { id: 'more', icon: 'dots', label: t('nav.more'), run: openMore },
       ];
 
       const setScale = (next) => {
@@ -1209,10 +1764,95 @@ window.__ModuleLoader__.load({
       };
       // Read the live value: repeated clicks must each build on the last one.
       const stepScale = (delta) => setScale(channel.getSnapshot().scale + delta);
+      const percent = Math.round(ui.scale * 100) + '%';
+
+      const sizeControls = (className) =>
+        h(
+          'div',
+          { className, role: 'group', 'aria-label': t('size.title') },
+          h(
+            'button',
+            {
+              type: 'button',
+              'aria-label': t('size.smaller'),
+              title: t('size.smaller'),
+              disabled: ui.scale <= SCALE_MIN,
+              onClick: () => stepScale(-0.1),
+            },
+            h(Icon, { name: 'minus' }),
+          ),
+          h(
+            'button',
+            {
+              type: 'button',
+              className: 'size-value',
+              'aria-label': t('size.reset') + ' (' + percent + ')',
+              title: t('size.reset'),
+              onClick: () => setScale(1),
+            },
+            percent,
+          ),
+          h(
+            'button',
+            {
+              type: 'button',
+              'aria-label': t('size.larger'),
+              title: t('size.larger'),
+              disabled: ui.scale >= SCALE_MAX,
+              onClick: () => stepScale(0.1),
+            },
+            h(Icon, { name: 'plus' }),
+          ),
+        );
+
+      const moreRow = (name, note, control) =>
+        h(
+          'div',
+          { className: 'modal-row' },
+          h(
+            'div',
+            { className: 'mr-text' },
+            h('span', { className: 'mr-name' }, name),
+            note === undefined ? null : h('span', { className: 'mr-note' }, note),
+          ),
+          control,
+        );
+
+      const openButton = (name, run, disabled) =>
+        h(
+          'button',
+          {
+            type: 'button',
+            className: 'ghost-btn',
+            'aria-label': t('more.openNamed', { name }),
+            disabled: disabled === true,
+            onClick: run,
+          },
+          t('more.open'),
+        );
+
+      const showDiagnostics = () => {
+        const none = t('diag.none');
+        try {
+          const panel = document.querySelector('.face-conv');
+          const rect = panel === null ? null : panel.getBoundingClientRect();
+          const scroller = document.querySelector('.face-conv [data-conversation-scroll]');
+          setDiag({
+            viewport: window.innerWidth + ' x ' + window.innerHeight + ' @' + window.devicePixelRatio,
+            mode: document.querySelector('.cube-ui')?.getAttribute('data-mode') ?? '?',
+            panel: rect === null ? none : Math.round(rect.width) + ' x ' + Math.round(rect.height),
+            scroller: scroller === null ? none : scroller.clientHeight + ' / ' + scroller.scrollHeight,
+            scrollTop: scroller === null ? none : Math.round(scroller.scrollTop),
+            agent: navigator.userAgent,
+          });
+        } catch (error) {
+          setDiag({ error: String(error && error.message) });
+        }
+      };
 
       return h(
         'div',
-        { className: 'cube-ui-overlay', 'data-cube-chrome': '' },
+        { className: 'cube-ui-overlay', 'data-cube-chrome': '', ref: overlayRef },
         h(
           'nav',
           { className: 'diamond', 'aria-label': t('nav.title') },
@@ -1229,6 +1869,7 @@ window.__ModuleLoader__.load({
                   'data-action': quadrant.id,
                   title: quadrant.label,
                   'aria-label': quadrant.label,
+                  'aria-haspopup': quadrant.id === 'more' ? 'dialog' : undefined,
                   'aria-expanded': quadrant.id === 'more' ? (moreOpen ? 'true' : 'false') : undefined,
                   onClick: quadrant.run,
                   onPointerEnter: (event) => showTip(event, quadrant.label),
@@ -1250,16 +1891,22 @@ window.__ModuleLoader__.load({
               {
                 className: 'modal-backdrop',
                 onClick: (event) => {
-                  if (event.target === event.currentTarget) setMoreOpen(false);
+                  if (event.target === event.currentTarget) closeMore();
                 },
               },
               h(
                 'div',
-                { className: 'modal', role: 'dialog', 'aria-modal': 'true', 'aria-label': t('more.title') },
+                {
+                  className: 'modal',
+                  role: 'dialog',
+                  'aria-modal': 'true',
+                  'aria-labelledby': 'cube-ui-more-title',
+                  onKeyDown: trapTab,
+                },
                 h(
                   'div',
                   { className: 'modal-head' },
-                  h('h2', {}, t('more.title')),
+                  h('h2', { id: 'cube-ui-more-title' }, t('more.title')),
                   h(
                     'button',
                     {
@@ -1267,91 +1914,62 @@ window.__ModuleLoader__.load({
                       className: 'icon-btn',
                       'aria-label': t('more.close'),
                       title: t('more.close'),
-                      onClick: () => setMoreOpen(false),
+                      onClick: closeMore,
                     },
                     h(Icon, { name: 'close' }),
                   ),
                 ),
                 h('p', { className: 'modal-sub' }, t('more.sub')),
-                h(
-                  'div',
-                  { className: 'modal-row' },
-                  h('span', {}, t('more.settings')),
-                  h('span', { className: 'mr-note' }, t('more.settingsMeta')),
+                moreRow(
+                  t('more.settings'),
+                  IS_DESKTOP ? t('dock.settingsDesktop') : t('more.settingsMeta'),
+                  openButton(
+                    t('more.settings'),
+                    () => {
+                      closeMore();
+                      actions.openSettings();
+                    },
+                    IS_DESKTOP,
+                  ),
+                ),
+                moreRow(t('more.plugins'), t('more.pluginsMeta'), openButton(t('more.plugins'), () => openPanel('plugins'))),
+                moreRow(
+                  t('more.schedules'),
+                  t('more.schedulesMeta'),
+                  openButton(t('more.schedules'), () => openPanel('schedules')),
+                ),
+                moreRow(t('more.size'), undefined, sizeControls('size-inline')),
+                moreRow(
+                  t('more.guide'),
+                  t('more.guideMeta'),
                   h(
                     'button',
                     {
                       type: 'button',
                       className: 'ghost-btn',
+                      'aria-label': t('more.openNamed', { name: t('more.guide') }),
                       onClick: () => {
-                        setMoreOpen(false);
-                        actions.openSettings();
+                        writeStored(ONBOARD_KEY, null);
+                        writeStored(HINT_KEY, null);
+                        channel.update({ moreOpen: false, tour: 0, hintHidden: false, mode: 'browse', closed: true });
                       },
                     },
-                    t('more.open'),
+                    t('more.show'),
                   ),
                 ),
-                h(
-                  'div',
-                  { className: 'modal-row' },
-                  h('span', {}, t('more.plugins')),
-                  h('span', { className: 'mr-note' }, t('more.pluginsMeta')),
-                  h(
-                    'button',
-                    { type: 'button', className: 'ghost-btn', onClick: () => openPanel('plugins') },
-                    t('more.open'),
-                  ),
-                ),
-                h(
-                  'div',
-                  { className: 'modal-row' },
-                  h('span', {}, t('more.schedules')),
-                  h('span', { className: 'mr-note' }, t('more.schedulesMeta')),
-                  h(
-                    'button',
-                    { type: 'button', className: 'ghost-btn', onClick: () => openPanel('schedules') },
-                    t('more.open'),
-                  ),
-                ),
-                h(
-                  'div',
-                  { className: 'modal-row' },
-                  h('span', {}, t('more.diagnostics')),
-                  h('span', { className: 'mr-note' }, t('more.diagnosticsMeta')),
-                  h(
-                    'button',
-                    {
-                      type: 'button',
-                      className: 'ghost-btn',
-                      onClick: () => {
-                        try {
-                          const panel = document.querySelector('.face-conv');
-                          const rect = panel === null ? null : panel.getBoundingClientRect();
-                          const scroller = document.querySelector('.face-conv [data-conversation-scroll]');
-                          setDiag({
-                            viewport: window.innerWidth + ' x ' + window.innerHeight + ' @' + window.devicePixelRatio,
-                            mode: document.querySelector('.cube-ui')?.getAttribute('data-mode') ?? '?',
-                            panel: rect === null ? 'なし' : Math.round(rect.width) + ' x ' + Math.round(rect.height),
-                            scroller: scroller === null ? 'なし' : scroller.clientHeight + ' / ' + scroller.scrollHeight,
-                            scrollTop: scroller === null ? 'なし' : Math.round(scroller.scrollTop),
-                            agent: navigator.userAgent,
-                          });
-                        } catch (error) {
-                          setDiag({ error: String(error && error.message) });
-                        }
-                      },
-                    },
-                    t('more.open'),
-                  ),
+                moreRow(
+                  t('more.diagnostics'),
+                  t('more.diagnosticsMeta'),
+                  openButton(t('more.diagnostics'), showDiagnostics),
                 ),
                 diag === null
                   ? null
                   : h(
                       'pre',
-                      { className: 'modal-note', style: { whiteSpace: 'pre-wrap', wordBreak: 'break-all' } },
+                      { className: 'modal-note diag' },
                       Object.entries(diag).map(([key, value]) => key + ': ' + value).join('\n'),
                     ),
-                h('p', { className: 'modal-note' }, t('more.about') + ' ・ v' + VERSION),
+                h('p', { className: 'modal-note' }, t('more.version', { version: VERSION })),
               ),
             )
           : null,
@@ -1365,6 +1983,7 @@ window.__ModuleLoader__.load({
               id: 'cube-ui-dock-panel',
               role: 'region',
               'aria-label': t('dock.title'),
+              hidden: !ui.dockOpen,
             },
             h(
               'div',
@@ -1375,6 +1994,7 @@ window.__ModuleLoader__.load({
                 {
                   type: 'button',
                   className: 'dock-item',
+                  disabled: IS_DESKTOP,
                   onClick: () => {
                     channel.update({ dockOpen: false });
                     actions.openSettings();
@@ -1382,7 +2002,7 @@ window.__ModuleLoader__.load({
                 },
                 h(Icon, { name: 'gear', className: 'di-ico' }),
                 t('dock.settings'),
-                h('span', { className: 'di-meta' }, t('dock.settingsMeta')),
+                h('span', { className: 'di-meta' }, IS_DESKTOP ? t('dock.settingsDesktop') : t('dock.settingsMeta')),
               ),
             ),
             h(
@@ -1420,31 +2040,7 @@ window.__ModuleLoader__.load({
               h('p', { className: 'modal-note' }, t('dock.note')),
             ),
           ),
-          h(
-            'div',
-            { className: 'size-pill', role: 'group', 'aria-label': t('size.title') },
-            h(
-              'button',
-              {
-                type: 'button',
-                'aria-label': t('size.smaller'),
-                title: t('size.smaller'),
-                onClick: () => stepScale(-0.1),
-              },
-              h(Icon, { name: 'minus' }),
-            ),
-            h('span', { title: t('size.title') }, Math.round(ui.scale * 100) + '%'),
-            h(
-              'button',
-              {
-                type: 'button',
-                'aria-label': t('size.larger'),
-                title: t('size.larger'),
-                onClick: () => stepScale(0.1),
-              },
-              h(Icon, { name: 'plus' }),
-            ),
-          ),
+          sizeControls('size-pill'),
           h(
             'button',
             {
@@ -1452,6 +2048,7 @@ window.__ModuleLoader__.load({
               className: 'dock-toggle',
               'aria-expanded': ui.dockOpen ? 'true' : 'false',
               'aria-controls': 'cube-ui-dock-panel',
+              'aria-label': t('dock.title'),
               title: t('dock.title'),
               onClick: openDock,
             },
@@ -1614,10 +2211,11 @@ window.__ModuleLoader__.load({
           if (root !== null && !root.contains(event.target)) setOpen(false);
         };
         const onKeyDown = (event) => {
-          if (event.key !== 'Escape') return;
+          if (event.key !== 'Escape' || event.isComposing) return;
           setOpen(false);
           // Keep the cube's own Escape (leave the inside view) out of it.
           event.stopPropagation();
+          rootRef.current?.querySelector('.cube-mode-trigger')?.focus({ preventScroll: true });
         };
         document.addEventListener('pointerdown', onPointerDown, true);
         document.addEventListener('keydown', onKeyDown, true);
@@ -1637,27 +2235,27 @@ window.__ModuleLoader__.load({
 
       // The face clips its children, so measure it before opening and keep the
       // menu inside it: narrow cubes (size pill below 100%) would otherwise
-      // cut the menu's right edge off. The face is perspective-projected, so
-      // screen rects are scaled against its CSS width and converted back.
+      // cut the menu's right edge off. Shares measureInFace() with the
+      // session menu in the conversation header.
       const openMenu = () => {
         const root = rootRef.current;
-        const trigger = root === null ? null : root.querySelector('.cube-mode-trigger');
-        const face = root === null ? null : root.closest('.face');
-        if (trigger !== null && face !== null && face.offsetWidth > 0) {
-          const triggerRect = trigger.getBoundingClientRect();
-          const faceRect = face.getBoundingClientRect();
-          const scale = faceRect.width / face.offsetWidth;
+        const box = measureInFace(root === null ? null : root.querySelector('.cube-mode-trigger'));
+        if (box !== null) {
+          const { scale, faceRect, rect } = box;
           const margin = 8;
-          const width = Math.max(180, Math.min(252, Math.round(face.offsetWidth - margin * 2)));
-          let left = Math.round((faceRect.right - margin * scale - width * scale - triggerRect.left) / scale);
+          const faceWidth = faceRect.width / scale;
+          const width = Math.max(180, Math.min(252, Math.round(faceWidth - margin * 2)));
+          let left = Math.round((faceRect.right - margin * scale - width * scale - rect.left) / scale);
           if (left > 0) left = 0;
-          const floor = Math.round((faceRect.left + margin * scale - triggerRect.left) / scale);
+          const floor = Math.round((faceRect.left + margin * scale - rect.left) / scale);
           if (left < floor) left = floor;
-          setMenuBox({ left, width });
+          const above = Math.floor((rect.top - faceRect.top) / scale - margin - 6);
+          setMenuBox({ left, width, maxHeight: Math.max(96, Math.min(232, above)) });
         } else {
           setMenuBox(null);
         }
         setOpen(true);
+        focusWhenReady(() => rootRef.current, ['.cube-mode-item[aria-current="true"]', '.cube-mode-item'], 4);
       };
 
       const pick = (option) => {
@@ -1695,8 +2293,8 @@ window.__ModuleLoader__.load({
             disabled: locked || busy,
             title: locked ? t('mode.locked') : t('mode.hint'),
             'aria-label': t('mode.label') + ': ' + label,
-            'aria-haspopup': 'listbox',
             'aria-expanded': open ? 'true' : 'false',
+            'aria-controls': open ? 'cube-ui-mode-menu' : undefined,
             onClick: () => {
               if (locked || busy) return;
               if (open) {
@@ -1715,9 +2313,14 @@ window.__ModuleLoader__.load({
               'div',
               {
                 className: 'cube-mode-menu',
-                role: 'listbox',
+                id: 'cube-ui-mode-menu',
+                role: 'group',
                 'aria-label': t('mode.label'),
-                style: menuBox === null ? undefined : { left: menuBox.left + 'px', width: menuBox.width + 'px' },
+                onKeyDown: onMenuKeyDown,
+                style:
+                  menuBox === null
+                    ? undefined
+                    : { left: menuBox.left + 'px', width: menuBox.width + 'px', maxHeight: menuBox.maxHeight + 'px' },
               },
               options.map((option) =>
                 h(
@@ -1725,9 +2328,8 @@ window.__ModuleLoader__.load({
                   {
                     key: option.id,
                     type: 'button',
-                    role: 'option',
                     className: 'cube-mode-item' + (option.id === currentId ? ' current' : ''),
-                    'aria-selected': option.id === currentId ? 'true' : 'false',
+                    'aria-current': option.id === currentId ? 'true' : undefined,
                     disabled: busy,
                     title: option.description ?? undefined,
                     onClick: () => pick(option),
@@ -1779,38 +2381,63 @@ window.__ModuleLoader__.load({
         workspaceId: undefined,
         sessionId: undefined,
         menuOpen: false,
+        moreOpen: false,
         dockOpen: false,
         lastSession: {},
+        /** Step of the first-run guide, or null once it was seen. */
+        tour: readStored(ONBOARD_KEY) === null ? 0 : null,
+        hintHidden: readStored(HINT_KEY) !== null,
+        /** Last failed host call, shown as a toast: { key, at }. */
+        notice: null,
       });
+
+      // Host calls may throw or reject; either way the user sees a toast and
+      // the console keeps the detail.
+      const guarded = (name, noticeKey, run) => {
+        const fail = (error) => {
+          console.warn('[cube-ui] ' + name + ' failed:', error);
+          channel.update({ notice: { key: noticeKey, at: Date.now() } });
+        };
+        try {
+          const result = run();
+          if (result !== null && typeof result === 'object' && typeof result.then === 'function') {
+            result.then(
+              (value) => {
+                if (value !== null && typeof value === 'object' && value.ok === false) fail(value.error);
+              },
+              fail,
+            );
+          }
+        } catch (error) {
+          fail(error);
+        }
+      };
 
       const actions = {
         openSession(sessionId) {
-          try {
-            ctx.uiWorkspace.openSession(sessionId);
-          } catch (error) {
-            console.warn('[cube-ui] openSession failed:', error);
-          }
+          guarded('openSession', 'error.openSession', () => ctx.uiWorkspace.openSession(sessionId));
         },
         startSession(workspaceId) {
-          try {
-            ctx.uiWorkspace.startSession(workspaceId);
-          } catch (error) {
-            console.warn('[cube-ui] startSession failed:', error);
-          }
+          guarded('startSession', 'error.startSession', () => ctx.uiWorkspace.startSession(workspaceId));
         },
         selectPanel(panelId) {
-          try {
-            ctx.layout.selectPanel(panelId);
-          } catch (error) {
-            console.warn('[cube-ui] selectPanel failed:', error);
-          }
+          guarded('selectPanel', 'error.selectPanel', () => ctx.layout.selectPanel(panelId));
         },
         openSettings() {
-          try {
-            openSettings(ctx);
-          } catch (error) {
-            console.warn('[cube-ui] openSettings failed:', error);
-          }
+          guarded('openSettings', 'error.openSettings', () => openSettings(ctx));
+        },
+        /** Show the standard sidebar (where Workspaces are added). */
+        openSidebar() {
+          guarded('openSidebar', 'error.sidebar', () => {
+            const frame = sidebarFrame();
+            const collapsed =
+              frame === null
+                ? document.querySelector('[data-sidebar-collapsed]') !== null
+                : frame.hasAttribute('data-sidebar-collapsed');
+            // Expanded already: toggling would hide it.
+            if (frame !== null && !collapsed) return;
+            ctx.layout.toggleSidebar();
+          });
         },
       };
 
@@ -1870,30 +2497,34 @@ window.__ModuleLoader__.load({
         }, 'cube-ui: stage session mirror'),
       );
 
-      // Default view: the left sidebar collapsed. Only the API can move it,
-      // and only after the frame has mounted, so retry briefly and then act
-      // once. Narrow windows use the drawer, where the same call would open it
-      // — leave those alone.
+      // Default view: the left sidebar collapsed — on the first visit only.
+      // Afterwards the sidebar is the user's: a reload never re-collapses a
+      // sidebar they opened. Only the API can move it, and only after the
+      // frame has mounted, so retry briefly; when the frame (and so the
+      // sidebar's state) cannot be read, do nothing rather than toggle blind.
+      // Narrow windows use the drawer, where the same call would open it —
+      // leave those alone.
       ctx.effect(() => {
         if (typeof window === 'undefined' || typeof document === 'undefined' || window.innerWidth < 1024) return;
+        if (readStored(SIDEBAR_KEY) !== null) return;
         let tries = 0;
         let timer = 0;
         let done = false;
         const collapse = () => {
           if (done) return;
-          const frame = document.querySelector('[data-sidebar-collapsed], [data-sidebar-drawer]');
-          if (document.querySelector('[data-sidebar-collapsed]') !== null) {
-            done = true;
-            return;
-          }
-          if (frame === null && tries < 20) {
-            tries += 1;
-            timer = window.setTimeout(collapse, 100);
+          const frame = sidebarFrame();
+          if (frame === null) {
+            if (tries < 20) {
+              tries += 1;
+              timer = window.setTimeout(collapse, 100);
+            }
             return;
           }
           done = true;
+          writeStored(SIDEBAR_KEY, '1');
+          if (frame.hasAttribute('data-sidebar-collapsed') || frame.hasAttribute('data-sidebar-drawer')) return;
           try {
-            if (document.querySelector('[data-sidebar-collapsed]') === null) ctx.layout.toggleSidebar();
+            ctx.layout.toggleSidebar();
           } catch (error) {
             console.warn('[cube-ui] sidebar collapse failed:', error);
           }
@@ -1903,6 +2534,15 @@ window.__ModuleLoader__.load({
           window.clearTimeout(timer);
         };
       }, 'cube-ui: collapsed sidebar default');
+    }
+
+    /**
+     * The app frame carries the sidebar state as data attributes. The right
+     * bar column is always rendered, so its parent is the frame.
+     */
+    function sidebarFrame() {
+      if (typeof document === 'undefined') return null;
+      return document.querySelector('[data-rightbar-col]')?.parentElement ?? null;
     }
 
     /**

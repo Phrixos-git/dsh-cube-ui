@@ -4,8 +4,8 @@
 //
 //   * it shadows `main.conversation` (the shipped ConversationRoot) with a
 //     stage that draws six Workspace faces on a rotatable 3D cube;
-//   * dragging rotates the cube with inertia and a 90 degree snap; the front
-//     face is the Workspace in focus;
+//   * dragging (or the arrow keys / the face buttons) rotates the cube with
+//     a 90 degree snap; the front face is the Workspace in focus;
 //   * selecting a Session opens it "inside the cube": the shipped Conversation
 //     content and composer are instantiated in the centre of the stage through
 //     `renderFactorySlot('conversation.content', { variant: 'embedded' })`, so
@@ -38,10 +38,11 @@ window.__ModuleLoader__.load({
     const LOCALE_NS = 'cube-ui';
     const STYLE_ID = '@local/dsh-cube-ui/styles';
     const VERSION = "0.1.0";
-    const STYLES = "/* ==========================================================================\n   DSH Cube UI — client-plugin stylesheet\n\n   Scope\n   -----\n   Every rule is namespaced under one of the two roots the client bundle\n   renders:\n     .cube-ui          the cube stage (position:absolute; inset:0, fills the\n                       main panel; carries data-mode=\"browse\" | \"inside\")\n     .cube-ui-overlay  floating chrome (rail, diamond, dock, modal, tip)\n   There are no html / body / :root / bare `*` selectors and no host hash\n   classes here, so nothing can leak into the standard DSH UI.\n\n   Theme\n   -----\n   The Phase 0 mock mirrored the DSH tokens in its own :root. That mirror is\n   intentionally gone: colors come from the live theme tokens (--dsw-*), and\n   cube-specific values are declared as --cube-* on the two roots. Every\n   surface/accent is derived with color-mix() from theme tokens, so the\n   stylesheet follows both the light and the dark theme without hard-coded\n   dark colors (only black/white alpha is used for masks and soft shadows).\n\n   Regression guard\n   ----------------\n   Firefox software compositing double-draws text when a 3D-transformed\n   element (.face) carries box-shadow or filter: drop-shadow. Do NOT add\n   either property to .face / .face-inner / .face-room. The floor glow is a\n   plain 2D element, so blur() there is fine.\n   ========================================================================== */\n\n/* --------------------------------------------------------------------------\n   1. Cube tokens, derived from the live theme\n   -------------------------------------------------------------------------- */\n\n.cube-ui,\n.cube-ui-overlay {\n  /* geometry */\n  --cube-radius: 16px;\n  --cube-ease: cubic-bezier(0.2, 0.9, 0.25, 1);\n\n  /* accent — follows the theme's blue business color */\n  --cube-accent: var(--dsw-alias-state-business-primary);\n  --cube-accent-2: var(--dsw-alias-state-done-primary);\n  --cube-accent-soft: color-mix(in oklab, var(--cube-accent) 16%, transparent);\n  --cube-accent-line: color-mix(in oklab, var(--cube-accent) 42%, transparent);\n\n  /* surfaces */\n  --cube-surface-raised: var(--dsw-menu-surface-fill, var(--dsw-alias-bg-layer-2));\n  --cube-surface-sunken: color-mix(in oklab, var(--dsw-alias-bg-base) 55%, transparent);\n  --cube-hover: var(--dsw-alias-interactive-bg-hover);\n  --cube-hover-active: var(--dsw-alias-interactive-bg-active);\n\n  /* borders */\n  --cube-border-soft: var(--dsw-alias-border-l1);\n  --cube-border: var(--dsw-alias-border-l2);\n  --cube-border-strong: var(--dsw-alias-border-l3);\n  --cube-border-accent: color-mix(in oklab, var(--cube-accent) 55%, transparent);\n\n  /* text */\n  --cube-text: var(--dsw-alias-label-primary);\n  --cube-text-dim: var(--dsw-alias-label-secondary);\n  --cube-text-faint: var(--dsw-alias-label-tertiary);\n  --cube-text-caption: var(--dsw-alias-label-caption);\n  --cube-text-on-accent: var(--dsw-alias-label-primary-foreground);\n\n  /* status */\n  --cube-ok: var(--dsw-alias-state-success-primary);\n  --cube-ok-soft: var(--dsw-alias-state-success-tertiary);\n\n  /* elevation / scrollbars */\n  --cube-shadow: var(--dsw-elevation-prominent, 0 0 0 0.5px var(--dsw-alias-border-l3));\n  --cube-shadow-soft: var(--dsw-elevation-panel, 0 0 0 0.5px var(--dsw-alias-border-l1));\n  --cube-scroll-thumb: var(--dsw-alias-scrollbar-bg-l1);\n  --cube-scroll-thumb-hover: var(--dsw-alias-scrollbar-hover-l1);\n\n  /* cube faces — mixed from layer + accent so both themes stay legible */\n  --cube-face-top: color-mix(in oklab, var(--dsw-alias-bg-layer-3) 88%, var(--cube-accent) 12%);\n  --cube-face-mid: color-mix(in oklab, var(--dsw-alias-bg-layer-2) 93%, var(--cube-accent) 7%);\n  --cube-face-bottom: color-mix(in oklab, var(--dsw-alias-bg-layer-1) 97%, var(--cube-accent) 3%);\n  --cube-face-front-top: color-mix(in oklab, var(--dsw-alias-bg-layer-3) 80%, var(--cube-accent) 20%);\n  --cube-face-front-bottom: color-mix(in oklab, var(--dsw-alias-bg-layer-2) 90%, var(--cube-accent) 10%);\n\n  /* inherited text/style baseline for the plugin subtree */\n  color: var(--cube-text);\n  font-family: var(--dsw-font-family);\n  -webkit-font-smoothing: antialiased;\n  -webkit-tap-highlight-color: transparent;\n}\n\n/* --------------------------------------------------------------------------\n   2. Root layout\n   -------------------------------------------------------------------------- */\n\n.cube-ui {\n  --cube-size: 520px; /* overridden by media/container queries on .cube-shell */\n\n  position: absolute;\n  inset: 0;\n  overflow: hidden;\n\n  /* sizes inside the cube follow the panel width, not the viewport (the\n     sidebar can be expanded while the window is wide) */\n  container-type: inline-size;\n  container-name: cube;\n}\n\n.cube-ui-overlay {\n  position: fixed;\n  inset: 0;\n  z-index: 40;\n  overflow: hidden;\n  pointer-events: none; /* additive layer: only explicit chrome is clickable */\n\n  container-type: inline-size;\n  container-name: cube;\n}\n\n.cube-ui-overlay .rail,\n.cube-ui-overlay .rail-panel,\n.cube-ui-overlay .diamond,\n.cube-ui-overlay .dock,\n.cube-ui-overlay .modal-backdrop {\n  pointer-events: auto;\n}\n\n/* --------------------------------------------------------------------------\n   3. Basics (scoped: no global resets)\n   -------------------------------------------------------------------------- */\n\n.cube-ui,\n.cube-ui *,\n.cube-ui *::before,\n.cube-ui *::after,\n.cube-ui-overlay,\n.cube-ui-overlay *,\n.cube-ui-overlay *::before,\n.cube-ui-overlay *::after {\n  box-sizing: border-box;\n}\n\n.cube-ui button,\n.cube-ui input,\n.cube-ui textarea,\n.cube-ui-overlay button,\n.cube-ui-overlay input,\n.cube-ui-overlay textarea {\n  font: inherit;\n}\n\n.cube-ui button:focus-visible,\n.cube-ui [role=\"button\"]:focus-visible,\n.cube-ui-overlay button:focus-visible {\n  outline: 2px solid var(--cube-accent);\n  outline-offset: 2px;\n}\n\n/* icons are inline SVG from the client bundle */\n.cube-ui .ico,\n.cube-ui-overlay .ico {\n  display: inline-flex;\n  align-items: center;\n  justify-content: center;\n}\n\n.cube-ui .ico svg,\n.cube-ui-overlay .ico svg {\n  display: block;\n  width: 17px;\n  height: 17px;\n}\n\n.cube-ui .ss-ico svg { width: 14px; height: 14px; }\n.cube-ui .icon-btn .ico svg { width: 15px; height: 15px; }\n.cube-ui .avatar svg { width: 10px; height: 10px; }\n\n.cube-ui-overlay .rail-btn .ico svg { width: 18px; height: 18px; }\n.cube-ui-overlay .rail-brand .ico svg { width: 19px; height: 19px; }\n.cube-ui-overlay .brand-mark .ico svg { width: 15px; height: 15px; }\n.cube-ui-overlay .di-ico svg { width: 15px; height: 15px; }\n.cube-ui-overlay .dock-ico svg { width: 15px; height: 15px; }\n.cube-ui-overlay .dock-caret svg { width: 13px; height: 13px; }\n.cube-ui-overlay .rp-ico svg { width: 15px; height: 15px; }\n.cube-ui-overlay .dq .ico svg { width: 19px; height: 19px; }\n\n/* --------------------------------------------------------------------------\n   4. Stage and cube\n   -------------------------------------------------------------------------- */\n\n.cube-ui .bg-glow {\n  position: absolute;\n  inset: 0;\n  z-index: 0;\n  pointer-events: none;\n  background:\n    radial-gradient(900px 620px at 50% 34%,\n      color-mix(in oklab, var(--cube-accent) 18%, transparent), transparent 62%),\n    radial-gradient(700px 520px at 82% 78%,\n      color-mix(in oklab, var(--cube-accent-2) 12%, transparent), transparent 65%),\n    radial-gradient(760px 540px at 12% 16%,\n      color-mix(in oklab, var(--cube-accent) 8%, transparent), transparent 60%),\n    color-mix(in oklab, var(--dsw-alias-bg-base) 62%, transparent);\n}\n\n.cube-ui .stage {\n  position: absolute;\n  inset: 0;\n  display: grid;\n  place-items: center;\n  perspective: 1700px;\n  perspective-origin: 50% 46%;\n  overflow: hidden;\n  cursor: default;\n  /* Drag-to-rotate only. touch-action is intersected along the ancestor chain,\n     so the conversation panel must be rendered OUTSIDE .stage (a sibling under\n     .cube-ui) for touch scrolling inside .conv to keep working. The .conv\n     rules below centre it with inset:0 + margin:auto, which is identical in\n     both nestings; this note only concerns touch behaviour. */\n  touch-action: none;\n  user-select: none;\n}\n\n/* Rotation is a cube gesture: only the cube surface advertises drag. */\n.cube-ui .cube-shell {\n  cursor: grab;\n}\n\n.cube-ui .stage.grabbing .cube-shell {\n  cursor: grabbing;\n}\n\n.cube-ui .cube-shell button {\n  cursor: pointer;\n}\n\n/* The stage disables selection for rotation, but the front-face conversation\n   is a reading surface: its text stays selectable while its chrome is not. */\n.cube-ui .face-conv {\n  cursor: default;\n  user-select: text;\n}\n\n.cube-ui .face-conv * {\n  user-select: text;\n}\n\n.cube-ui .face-conv .conv-head,\n.cube-ui .face-conv .conv-head *,\n.cube-ui .face-conv button {\n  user-select: none;\n}\n\n.cube-ui .floor-glow {\n  position: absolute;\n  left: 50%;\n  bottom: 6%;\n  z-index: 0;\n  width: min(820px, 72cqw);\n  height: 190px;\n  transform: translateX(-50%);\n  border-radius: 50%;\n  pointer-events: none;\n  /* 2D element, not a 3D face: blur is safe here */\n  filter: blur(22px);\n  background: radial-gradient(closest-side,\n    color-mix(in oklab, var(--cube-accent) 30%, transparent),\n    color-mix(in oklab, var(--cube-accent) 8%, transparent) 58%,\n    transparent 72%);\n  transition: opacity 0.5s;\n}\n\n.cube-ui .cube-shell {\n  position: relative;\n  z-index: 1;\n  width: var(--cube-size);\n  height: var(--cube-size);\n  --h: calc(var(--cube-size) / 2);\n  transform-style: preserve-3d;\n  transition: transform 0.75s var(--cube-ease), opacity 0.45s var(--cube-ease);\n}\n\n.cube-ui .cube-shell.flip {\n  transform: scale(0.84);\n  opacity: 0.25;\n}\n\n.cube-ui .cube {\n  position: absolute;\n  inset: 0;\n  transform-style: preserve-3d;\n}\n\n.cube-ui .cube.snap {\n  transition: transform 0.5s var(--cube-ease);\n}\n\n/* ---- faces (browse mode) ---- */\n\n.cube-ui .face {\n  position: absolute;\n  inset: 0;\n  display: flex;\n  flex-direction: column;\n  overflow: hidden;\n  border-radius: var(--cube-radius);\n  border: 1px solid var(--cube-border);\n  border-top-color: var(--cube-border-strong);\n  background: linear-gradient(155deg,\n    var(--cube-face-top) 0%,\n    var(--cube-face-mid) 58%,\n    var(--cube-face-bottom) 100%);\n  transition: background 0.5s, border-color 0.3s;\n  transform: translateZ(var(--h));\n  /* Firefox: never add box-shadow / filter here (text double-draw bug). */\n}\n\n.cube-ui .face[data-slot=\"1\"] { transform: rotateY(90deg) translateZ(var(--h)); }\n.cube-ui .face[data-slot=\"2\"] { transform: rotateY(180deg) translateZ(var(--h)); }\n.cube-ui .face[data-slot=\"3\"] { transform: rotateY(-90deg) translateZ(var(--h)); }\n.cube-ui .face[data-slot=\"4\"] { transform: rotateX(90deg) translateZ(var(--h)); }\n.cube-ui .face[data-slot=\"5\"] { transform: rotateX(-90deg) translateZ(var(--h)); }\n\n.cube-ui .face.front {\n  border-color: var(--cube-border-accent);\n  border-top-color: color-mix(in oklab, var(--cube-accent) 72%, transparent);\n  background: linear-gradient(155deg,\n    var(--cube-face-front-top) 0%,\n    var(--cube-face-front-bottom) 100%);\n}\n\n/* face content: workspace + session list */\n.cube-ui .face-inner {\n  position: absolute;\n  inset: 0;\n  display: flex;\n  flex-direction: column;\n  gap: 10px;\n  padding: 16px;\n  transition: opacity 0.3s;\n}\n\n.cube-ui .face-head {\n  display: flex;\n  align-items: baseline;\n  gap: 8px;\n}\n\n.cube-ui .face-idx {\n  font-size: 10px;\n  letter-spacing: 0.12em;\n  color: var(--cube-text-caption);\n}\n\n.cube-ui .face-title {\n  margin: 0;\n  font-size: 14.5px;\n  font-weight: 600;\n  letter-spacing: 0.01em;\n  white-space: nowrap;\n  overflow: hidden;\n  text-overflow: ellipsis;\n}\n\n.cube-ui .face-path {\n  margin: -4px 0 2px;\n  font-size: 10.5px;\n  color: var(--cube-text-caption);\n  white-space: nowrap;\n  overflow: hidden;\n  text-overflow: ellipsis;\n}\n\n.cube-ui .sessions {\n  list-style: none;\n  margin: 0;\n  padding: 0;\n  flex: 1;\n  overflow: auto;\n  display: flex;\n  flex-direction: column;\n  gap: 6px;\n}\n\n.cube-ui .session {\n  display: flex;\n  flex-direction: column;\n  gap: 3px;\n  padding: 8px 10px;\n  border: 1px solid var(--cube-border-soft);\n  border-radius: 10px;\n  background: var(--cube-hover);\n  cursor: pointer;\n  transition: background 0.15s, border-color 0.15s, transform 0.15s;\n}\n\n.cube-ui .session:hover {\n  background: var(--cube-accent-soft);\n  border-color: var(--cube-border-accent);\n  transform: translateX(1px);\n}\n\n.cube-ui .session .stitle {\n  font-size: 12.5px;\n  line-height: 1.35;\n  white-space: nowrap;\n  overflow: hidden;\n  text-overflow: ellipsis;\n}\n\n.cube-ui .session .smeta {\n  display: flex;\n  align-items: center;\n  gap: 7px;\n  font-size: 10.5px;\n  color: var(--cube-text-caption);\n}\n\n.cube-ui .session .dot {\n  width: 6px;\n  height: 6px;\n  border-radius: 50%;\n  background: var(--cube-ok);\n  box-shadow: 0 0 0 3px color-mix(in oklab, var(--cube-ok) 16%, transparent);\n  animation: cube-pulse 1.7s ease-in-out infinite;\n}\n\n.cube-ui .face-empty {\n  flex: 1;\n  display: grid;\n  place-items: center;\n  font-size: 11.5px;\n  color: var(--cube-text-caption);\n  border: 1px dashed var(--cube-border);\n  border-radius: 10px;\n}\n\n.cube-ui .face-foot {\n  display: flex;\n  align-items: center;\n  justify-content: space-between;\n  gap: 8px;\n}\n\n.cube-ui .face-count {\n  font-size: 10.5px;\n  color: var(--cube-text-caption);\n}\n\n/* ---- face \"inside the room\" labels ---- */\n\n.cube-ui .face-room {\n  position: absolute;\n  inset: 0;\n  display: flex;\n  flex-direction: column;\n  justify-content: space-between;\n  padding: 20px;\n  opacity: 0;\n  pointer-events: none;\n  transition: opacity 0.4s;\n}\n\n.cube-ui .room-idx {\n  font-size: 10px;\n  letter-spacing: 0.18em;\n  color: var(--cube-text-caption);\n}\n\n.cube-ui .room-foot {\n  display: flex;\n  align-items: flex-end;\n  justify-content: space-between;\n  gap: 10px;\n}\n\n.cube-ui .room-title {\n  font-size: 15px;\n  font-weight: 600;\n  color: var(--cube-text-dim);\n  cursor: pointer;\n}\n\n.cube-ui .room-title:hover {\n  color: var(--cube-text);\n}\n\n.cube-ui .room-count {\n  font-size: 10.5px;\n  color: var(--cube-text-caption);\n}\n\n.cube-ui .face.front .room-idx {\n  color: var(--cube-accent);\n}\n\n.cube-ui .face.front .room-title {\n  color: var(--cube-text);\n}\n\n/* --------------------------------------------------------------------------\n   5. \"Inside the cube\" mode — .stage.inside and [data-mode=\"inside\"]\n   -------------------------------------------------------------------------- */\n\n.cube-ui .stage.inside .floor-glow,\n.cube-ui[data-mode=\"inside\"] .floor-glow {\n  opacity: 0.35;\n}\n\n.cube-ui .stage.inside .cube-shell,\n.cube-ui[data-mode=\"inside\"] .cube-shell {\n  transform: scale(1.86);\n}\n\n/* the faces become translucent glass walls with a faint grid */\n.cube-ui .stage.inside .face,\n.cube-ui[data-mode=\"inside\"] .face {\n  background:\n    linear-gradient(color-mix(in oklab, var(--cube-accent) 9%, transparent) 1px,\n      transparent 1px) 0 0 / 52px 52px,\n    linear-gradient(90deg, color-mix(in oklab, var(--cube-accent) 9%, transparent) 1px,\n      transparent 1px) 0 0 / 52px 52px,\n    color-mix(in oklab, var(--dsw-alias-bg-base) 24%, transparent);\n  border-color: var(--dsw-alias-border-l1);\n  border-top-color: var(--dsw-alias-border-l1);\n}\n\n.cube-ui .stage.inside .face.front,\n.cube-ui[data-mode=\"inside\"] .face.front {\n  border-color: color-mix(in oklab, var(--cube-accent) 34%, transparent);\n  background: color-mix(in oklab, var(--cube-accent) 5%, transparent);\n}\n\n.cube-ui .stage.inside .face-inner,\n.cube-ui[data-mode=\"inside\"] .face-inner {\n  opacity: 0;\n  pointer-events: none;\n}\n\n.cube-ui .stage.inside .face-room,\n.cube-ui[data-mode=\"inside\"] .face-room {\n  opacity: 0;\n  pointer-events: none;\n}\n\n.cube-ui .stage.inside .face.front .face-room,\n.cube-ui[data-mode=\"inside\"] .face.front .face-room {\n  opacity: 1;\n  pointer-events: auto;\n}\n\n/* --------------------------------------------------------------------------\n   6. Conversation panel (inside mode only)\n   -------------------------------------------------------------------------- */\n\n.cube-ui .conv {\n  position: absolute;\n  inset: 0;\n  z-index: 3;\n  margin: auto; /* centres in .stage or directly in .cube-ui */\n  width: min(720px, 92cqw);\n  height: min(600px, 66%);\n  display: flex;\n  flex-direction: column;\n  overflow: hidden;\n  border: 1px solid var(--cube-border-strong);\n  border-radius: 20px;\n  background: linear-gradient(168deg,\n    color-mix(in oklab, var(--dsw-alias-bg-layer-2) 94%, transparent),\n    color-mix(in oklab, var(--dsw-alias-bg-base) 97%, transparent));\n  box-shadow: var(--cube-shadow),\n    0 18px 48px -20px color-mix(in srgb, #000 22%, transparent);\n  backdrop-filter: blur(20px);\n  -webkit-backdrop-filter: blur(20px);\n  opacity: 0;\n  pointer-events: none;\n  transform: scale(0.97) translateY(10px);\n  transition: opacity 0.35s var(--cube-ease), transform 0.35s var(--cube-ease);\n}\n\n.cube-ui .conv.show,\n.cube-ui[data-mode=\"inside\"] .conv {\n  opacity: 1;\n  pointer-events: auto;\n  transform: none;\n}\n\n.cube-ui[data-mode=\"browse\"] .conv {\n  display: none;\n}\n\n.cube-ui .conv-head {\n  position: relative;\n  z-index: 2;\n  padding: 12px 14px 10px;\n  border-bottom: 1px solid var(--cube-border-soft);\n  background: var(--cube-hover);\n  user-select: none;\n}\n\n.cube-ui .conv-topline {\n  display: flex;\n  align-items: center;\n  gap: 8px;\n}\n\n.cube-ui .conv-ws {\n  display: flex;\n  align-items: center;\n  gap: 8px;\n  min-width: 0;\n  font-size: 12px;\n  color: var(--cube-text-dim);\n}\n\n.cube-ui .conv-ws b {\n  color: var(--cube-text);\n  font-weight: 600;\n  white-space: nowrap;\n}\n\n.cube-ui .conv-ws .conv-path {\n  color: var(--cube-text-caption);\n  font-size: 10.5px;\n  white-space: nowrap;\n  overflow: hidden;\n  text-overflow: ellipsis;\n}\n\n.cube-ui .conv-ws .dot {\n  width: 6px;\n  height: 6px;\n  flex: none;\n  border-radius: 50%;\n  background: var(--cube-accent);\n  box-shadow: 0 0 0 3px var(--cube-accent-soft);\n}\n\n.cube-ui .icon-btn,\n.cube-ui-overlay .icon-btn {\n  margin-left: auto;\n  width: 28px;\n  height: 28px;\n  display: grid;\n  place-items: center;\n  border: 1px solid transparent;\n  border-radius: 8px;\n  background: transparent;\n  color: var(--cube-text-dim);\n  font-size: 13px;\n  cursor: pointer;\n}\n\n.cube-ui .icon-btn:hover,\n.cube-ui-overlay .icon-btn:hover {\n  background: var(--cube-hover-active);\n  color: var(--cube-text);\n}\n\n.cube-ui .conv-sessionline {\n  position: relative;\n  margin-top: 9px;\n}\n\n.cube-ui .session-select {\n  width: 100%;\n  display: flex;\n  align-items: center;\n  gap: 8px;\n  padding: 9px 12px;\n  border: 1px solid var(--cube-border);\n  border-radius: 11px;\n  background: var(--cube-hover);\n  color: var(--cube-text);\n  font-size: 12.5px;\n  text-align: left;\n  cursor: pointer;\n  transition: border-color 0.15s, background 0.15s;\n}\n\n.cube-ui .session-select:hover {\n  border-color: var(--cube-border-accent);\n  background: var(--cube-accent-soft);\n}\n\n.cube-ui .ss-ico {\n  color: var(--cube-text-dim);\n}\n\n.cube-ui .ss-label {\n  flex: 1;\n  min-width: 0;\n  white-space: nowrap;\n  overflow: hidden;\n  text-overflow: ellipsis;\n}\n\n.cube-ui .ss-status {\n  flex: none;\n  font-size: 10px;\n  padding: 2px 7px;\n  border-radius: 999px;\n  color: var(--cube-text-dim);\n  border: 1px solid var(--cube-border);\n}\n\n.cube-ui .ss-status.running {\n  color: var(--cube-ok);\n  border-color: color-mix(in oklab, var(--cube-ok) 38%, transparent);\n  background: var(--cube-ok-soft);\n}\n\n.cube-ui .ss-caret {\n  flex: none;\n  width: 0;\n  height: 0;\n  border-left: 4px solid transparent;\n  border-right: 4px solid transparent;\n  border-top: 5px solid var(--cube-text-dim);\n  transition: transform 0.2s;\n}\n\n.cube-ui .session-select[aria-expanded=\"true\"] .ss-caret {\n  transform: rotate(180deg);\n}\n\n.cube-ui .session-menu {\n  position: absolute;\n  left: 0;\n  right: 0;\n  top: calc(100% + 6px);\n  z-index: 10;\n  max-height: 258px;\n  overflow: auto;\n  padding: 6px;\n  border: 1px solid var(--cube-border-strong);\n  border-radius: 13px;\n  background: var(--cube-surface-raised);\n  box-shadow: var(--cube-shadow);\n  backdrop-filter: blur(20px);\n  -webkit-backdrop-filter: blur(20px);\n}\n\n.cube-ui .session-menu[hidden] {\n  display: none;\n}\n\n.cube-ui .session-menu button {\n  width: 100%;\n  display: flex;\n  align-items: center;\n  gap: 8px;\n  padding: 9px 10px;\n  border: none;\n  border-radius: 9px;\n  background: transparent;\n  color: var(--cube-text);\n  font-size: 12.5px;\n  text-align: left;\n  cursor: pointer;\n}\n\n.cube-ui .session-menu button:hover {\n  background: var(--cube-hover-active);\n}\n\n.cube-ui .session-menu button.current {\n  background: var(--cube-accent-soft);\n}\n\n.cube-ui .session-menu .mi-meta {\n  margin-left: auto;\n  font-size: 10.5px;\n  color: var(--cube-text-caption);\n}\n\n.cube-ui .session-menu .mi-new {\n  color: var(--cube-accent);\n}\n\n.cube-ui .conv-body {\n  flex: 1;\n  overflow: auto;\n  padding: 16px 16px 8px;\n  display: flex;\n  flex-direction: column;\n  gap: 12px;\n}\n\n.cube-ui .conv-empty {\n  margin: auto;\n  text-align: center;\n  color: var(--cube-text-caption);\n  font-size: 12.5px;\n  line-height: 1.8;\n}\n\n.cube-ui .conv-empty .ghost-btn {\n  margin-top: 12px;\n}\n\n.cube-ui .msg {\n  display: flex;\n  flex-direction: column;\n  gap: 4px;\n  max-width: 88%;\n}\n\n.cube-ui .msg .who {\n  display: flex;\n  align-items: center;\n  gap: 6px;\n  font-size: 10.5px;\n  color: var(--cube-text-caption);\n}\n\n.cube-ui .msg .bubble {\n  padding: 10px 12px;\n  border-radius: 13px;\n  font-size: 12.5px;\n  line-height: 1.7;\n  white-space: pre-wrap;\n  word-break: break-word;\n}\n\n.cube-ui .msg.user {\n  align-self: flex-end;\n  align-items: flex-end;\n}\n\n.cube-ui .msg.user .bubble {\n  background: linear-gradient(160deg,\n    color-mix(in oklab, var(--cube-accent) 26%, transparent),\n    color-mix(in oklab, var(--cube-accent) 14%, transparent));\n  border: 1px solid color-mix(in oklab, var(--cube-accent) 30%, transparent);\n  border-bottom-right-radius: 5px;\n}\n\n.cube-ui .msg.assistant .bubble {\n  border: 1px solid var(--cube-border-soft);\n  background: var(--cube-hover);\n  border-bottom-left-radius: 5px;\n}\n\n.cube-ui .msg .avatar {\n  width: 18px;\n  height: 18px;\n  display: grid;\n  place-items: center;\n  border-radius: 6px;\n  font-size: 9px;\n  color: var(--cube-accent);\n  background: var(--cube-accent-soft);\n  border: 1px solid var(--cube-accent-line);\n}\n\n.cube-ui .typing {\n  display: flex;\n  gap: 4px;\n  padding: 2px 4px 8px;\n}\n\n.cube-ui .typing i {\n  width: 5px;\n  height: 5px;\n  border-radius: 50%;\n  background: var(--cube-text-faint);\n  animation: cube-bounce 1.2s infinite;\n}\n\n.cube-ui .typing i:nth-child(2) { animation-delay: 0.15s; }\n.cube-ui .typing i:nth-child(3) { animation-delay: 0.3s; }\n\n.cube-ui .composer {\n  display: flex;\n  gap: 10px;\n  padding: 12px 14px 14px;\n  border-top: 1px solid var(--cube-border-soft);\n  background: var(--cube-hover);\n}\n\n.cube-ui .composer textarea {\n  flex: 1;\n  resize: none;\n  min-height: 42px;\n  max-height: 132px;\n  padding: 10px 12px;\n  border: 1px solid var(--cube-border);\n  border-radius: 12px;\n  background: var(--cube-surface-sunken);\n  color: var(--cube-text);\n  font-size: 12.5px;\n  line-height: 1.5;\n  transition: border-color 0.15s;\n}\n\n.cube-ui .composer textarea:focus {\n  border-color: color-mix(in oklab, var(--cube-accent) 60%, transparent);\n}\n\n.cube-ui .composer textarea::placeholder {\n  color: var(--cube-text-caption);\n}\n\n.cube-ui .send {\n  align-self: flex-end;\n  height: 42px;\n  padding: 0 18px;\n  border: 1px solid color-mix(in oklab, var(--cube-accent) 40%, transparent);\n  border-radius: 12px;\n  background: var(--dsw-alias-button-info-fill);\n  color: var(--cube-text-on-accent);\n  font-size: 12.5px;\n  font-weight: 600;\n  cursor: pointer;\n  transition: background 0.15s;\n}\n\n.cube-ui .send:hover {\n  background: var(--dsw-alias-button-info-hover);\n}\n\n/* conversation text stays selectable even though the stage disables it */\n.cube-ui .conv,\n.cube-ui .conv * {\n  user-select: text;\n}\n\n.cube-ui .conv-head,\n.cube-ui .conv-head * {\n  user-select: none;\n}\n\n/* --------------------------------------------------------------------------\n   7. HUD / pager\n   -------------------------------------------------------------------------- */\n\n.cube-ui .hud {\n  position: absolute;\n  left: 50%;\n  bottom: 16px;\n  transform: translateX(-50%);\n  z-index: 4;\n  display: flex;\n  flex-direction: column;\n  align-items: center;\n  gap: 7px;\n  pointer-events: none;\n}\n\n.cube-ui .hud > * {\n  pointer-events: auto;\n}\n\n.cube-ui .hud-front {\n  font-size: 10px;\n  letter-spacing: 0.16em;\n  text-transform: uppercase;\n  color: var(--cube-text-caption);\n}\n\n.cube-ui .hud-hint {\n  font-size: 10.5px;\n  color: var(--cube-text-caption);\n  opacity: 0.85;\n}\n\n.cube-ui .pager {\n  display: flex;\n  align-items: center;\n  gap: 4px;\n  padding: 4px 6px;\n  border: 1px solid var(--cube-border);\n  border-radius: 999px;\n  background: color-mix(in oklab, var(--dsw-alias-bg-layer-2) 84%, transparent);\n  backdrop-filter: blur(14px);\n  -webkit-backdrop-filter: blur(14px);\n}\n\n.cube-ui .pager button {\n  width: 26px;\n  height: 26px;\n  border: none;\n  border-radius: 50%;\n  background: transparent;\n  color: var(--cube-text-dim);\n  font-size: 13px;\n  cursor: pointer;\n}\n\n.cube-ui .pager button:hover {\n  background: var(--cube-hover-active);\n  color: var(--cube-text);\n}\n\n.cube-ui .pager > span {\n  padding: 0 6px;\n  font-size: 11px;\n  color: var(--cube-text-dim);\n  letter-spacing: 0.02em;\n}\n\n/* --------------------------------------------------------------------------\n   8. Shared small button\n   -------------------------------------------------------------------------- */\n\n.cube-ui .ghost-btn,\n.cube-ui-overlay .ghost-btn {\n  display: inline-flex;\n  align-items: center;\n  gap: 6px;\n  padding: 6px 10px;\n  border-radius: 9px;\n  border: 1px solid var(--cube-border);\n  background: var(--cube-hover);\n  color: var(--cube-text-dim);\n  font-size: 11.5px;\n  cursor: pointer;\n  transition: background 0.15s, color 0.15s, border-color 0.15s;\n}\n\n.cube-ui .ghost-btn:hover,\n.cube-ui-overlay .ghost-btn:hover {\n  background: var(--cube-accent-soft);\n  border-color: var(--cube-border-accent);\n  color: var(--cube-text);\n}\n\n/* --------------------------------------------------------------------------\n   9. Overlay: rail (standard-sidebar collapsed placeholder)\n   -------------------------------------------------------------------------- */\n\n.cube-ui-overlay .rail {\n  position: fixed;\n  left: 0;\n  top: 0;\n  bottom: 0;\n  width: 56px;\n  z-index: 1;\n  display: flex;\n  flex-direction: column;\n  align-items: center;\n  gap: 6px;\n  padding: 14px 0;\n  background: color-mix(in oklab, var(--dsw-alias-bg-base) 72%, transparent);\n  border-right: 1px solid var(--cube-border-soft);\n  backdrop-filter: blur(14px);\n  -webkit-backdrop-filter: blur(14px);\n}\n\n.cube-ui-overlay .rail-brand {\n  width: 34px;\n  height: 34px;\n  display: grid;\n  place-items: center;\n  margin-bottom: 10px;\n  border-radius: 10px;\n  color: var(--dsw-alias-brand-primary);\n  font-size: 17px;\n  background: linear-gradient(150deg,\n    var(--cube-accent-soft),\n    color-mix(in oklab, var(--cube-accent-2) 14%, transparent));\n  border: 1px solid var(--cube-accent-line);\n}\n\n.cube-ui-overlay .rail-btn {\n  width: 38px;\n  height: 38px;\n  display: grid;\n  place-items: center;\n  border: 1px solid transparent;\n  border-radius: 11px;\n  background: transparent;\n  color: var(--cube-text-dim);\n  font-size: 16px;\n  cursor: pointer;\n  transition: background 0.18s, color 0.18s, border-color 0.18s;\n}\n\n.cube-ui-overlay .rail-btn:hover {\n  background: var(--cube-hover);\n  color: var(--cube-text);\n}\n\n.cube-ui-overlay .rail-btn.active {\n  background: var(--cube-accent-soft);\n  color: var(--cube-text);\n  border-color: var(--cube-accent-line);\n}\n\n.cube-ui-overlay .rail-spacer {\n  flex: 1;\n}\n\n/* expanded placeholder panel */\n.cube-ui-overlay .rail-panel {\n  position: fixed;\n  left: 56px;\n  top: 0;\n  bottom: 0;\n  width: 300px;\n  z-index: 2;\n  padding: 22px 20px;\n  overflow: auto;\n  background: color-mix(in oklab, var(--dsw-alias-bg-layer-1) 94%, transparent);\n  border-right: 1px solid var(--cube-border);\n  backdrop-filter: blur(18px);\n  -webkit-backdrop-filter: blur(18px);\n  transform: translateX(-104%);\n  transition: transform 0.28s var(--cube-ease);\n}\n\n.cube-ui-overlay .rail-panel.open {\n  transform: translateX(0);\n}\n\n.cube-ui-overlay .rail-panel h3 {\n  margin: 0 0 4px;\n  font-size: 13px;\n  letter-spacing: 0.08em;\n  text-transform: uppercase;\n  color: var(--cube-text-dim);\n}\n\n.cube-ui-overlay .rail-panel .rp-sub {\n  margin: 0 0 16px;\n  font-size: 12px;\n  color: var(--cube-text-caption);\n  line-height: 1.6;\n}\n\n.cube-ui-overlay .rp-row {\n  display: flex;\n  align-items: center;\n  gap: 10px;\n  padding: 11px 12px;\n  margin-bottom: 8px;\n  border: 1px solid var(--cube-border-soft);\n  border-radius: 12px;\n  background: var(--cube-hover);\n  font-size: 12.5px;\n  color: var(--cube-text);\n}\n\n.cube-ui-overlay .rp-row .rp-ico {\n  color: var(--cube-text-dim);\n}\n\n.cube-ui-overlay .rp-row .rp-meta {\n  margin-left: auto;\n  font-size: 11px;\n  color: var(--cube-text-caption);\n}\n\n/* --------------------------------------------------------------------------\n   10. Overlay: brand mark\n   -------------------------------------------------------------------------- */\n\n.cube-ui-overlay .brand {\n  position: fixed;\n  top: 20px;\n  left: 74px;\n  z-index: 7;\n  display: flex;\n  align-items: center;\n  gap: 10px;\n  pointer-events: none;\n}\n\n.cube-ui-overlay .brand .brand-mark {\n  width: 26px;\n  height: 26px;\n  display: grid;\n  place-items: center;\n  border-radius: 8px;\n  font-size: 13px;\n  color: var(--dsw-alias-brand-primary);\n  background: linear-gradient(150deg,\n    var(--cube-accent-soft),\n    color-mix(in oklab, var(--cube-accent-2) 18%, transparent));\n  border: 1px solid var(--cube-accent-line);\n}\n\n.cube-ui-overlay .brand .brand-text {\n  display: flex;\n  flex-direction: column;\n  line-height: 1.25;\n}\n\n.cube-ui-overlay .brand .brand-title {\n  font-size: 12px;\n  letter-spacing: 0.14em;\n  color: var(--dsw-alias-brand-primary);\n}\n\n.cube-ui-overlay .brand .brand-sub {\n  font-size: 10.5px;\n  letter-spacing: 0.06em;\n  color: var(--cube-text-caption);\n}\n\n/* --------------------------------------------------------------------------\n   11. Overlay: diamond navigation (top-right)\n   -------------------------------------------------------------------------- */\n\n.cube-ui-overlay .diamond {\n  position: fixed;\n  top: 22px;\n  right: 22px;\n  width: 132px;\n  height: 132px;\n  z-index: 5;\n}\n\n.cube-ui-overlay .diamond-shape {\n  position: absolute;\n  inset: 0;\n  display: grid;\n  grid-template-columns: 1fr 1fr;\n  grid-template-rows: 1fr 1fr;\n  gap: 2px;\n  transform: rotate(45deg);\n  border-radius: 13px;\n  overflow: hidden;\n  border: 1px solid var(--cube-border-strong);\n  box-shadow: var(--cube-shadow),\n    0 14px 34px -18px color-mix(in srgb, #000 22%, transparent);\n  background: var(--cube-border);\n}\n\n.cube-ui-overlay .dq {\n  display: grid;\n  place-items: center;\n  border: none;\n  background: var(--dsw-alias-bg-layer-2);\n  color: var(--cube-text-dim);\n  font-size: 17px;\n  cursor: pointer;\n  transition: background 0.18s, color 0.18s;\n}\n\n.cube-ui-overlay .dq > span {\n  display: block;\n  transform: rotate(-45deg);\n  line-height: 1;\n}\n\n.cube-ui-overlay .dq:hover,\n.cube-ui-overlay .dq:focus-visible {\n  background: linear-gradient(150deg,\n    color-mix(in oklab, var(--cube-accent) 34%, transparent),\n    color-mix(in oklab, var(--cube-accent-2) 26%, transparent));\n  color: var(--cube-text);\n}\n\n/* --------------------------------------------------------------------------\n   12. Overlay: hover tip\n   -------------------------------------------------------------------------- */\n\n.cube-ui-overlay .tip {\n  position: fixed;\n  z-index: 20;\n  padding: 6px 10px;\n  border-radius: 8px;\n  border: 1px solid var(--cube-border-strong);\n  background: var(--dsw-alias-tooltip-bg);\n  color: var(--dsw-alias-toast-label);\n  font-size: 11.5px;\n  white-space: nowrap;\n  pointer-events: none;\n  opacity: 0;\n  transform: translate(-100%, -50%);\n  transition: opacity 0.15s;\n}\n\n.cube-ui-overlay .tip.show {\n  opacity: 1;\n}\n\n/* --------------------------------------------------------------------------\n   13. Overlay: dock (settings / plugin launcher, bottom-left)\n   -------------------------------------------------------------------------- */\n\n.cube-ui-overlay .dock {\n  position: fixed;\n  left: 72px;\n  bottom: 16px;\n  z-index: 6;\n  display: flex;\n  flex-direction: column;\n  gap: 10px;\n  align-items: flex-start;\n}\n\n.cube-ui-overlay .dock-panel {\n  width: 268px;\n  max-height: min(430px, 54vh);\n  overflow: auto;\n  padding: 12px;\n  border: 1px solid var(--cube-border-strong);\n  border-radius: 16px;\n  background: var(--cube-surface-raised);\n  box-shadow: var(--cube-shadow),\n    0 18px 48px -20px color-mix(in srgb, #000 22%, transparent);\n  backdrop-filter: blur(18px);\n  -webkit-backdrop-filter: blur(18px);\n  display: none;\n}\n\n.cube-ui-overlay .dock.open .dock-panel {\n  display: block;\n  animation: cube-dock-in 0.22s var(--cube-ease);\n}\n\n.cube-ui-overlay .dock-section + .dock-section {\n  margin-top: 12px;\n  padding-top: 12px;\n  border-top: 1px solid var(--cube-border-soft);\n}\n\n.cube-ui-overlay .dock-section h3 {\n  margin: 0 0 8px;\n  font-size: 10px;\n  letter-spacing: 0.14em;\n  text-transform: uppercase;\n  color: var(--cube-text-caption);\n}\n\n.cube-ui-overlay .dock-item {\n  width: 100%;\n  display: flex;\n  align-items: center;\n  gap: 9px;\n  padding: 9px 10px;\n  border: 1px solid transparent;\n  border-radius: 9px;\n  background: transparent;\n  color: var(--cube-text);\n  font-size: 12px;\n  text-align: left;\n  cursor: pointer;\n}\n\n.cube-ui-overlay .dock-item:hover {\n  background: var(--cube-hover);\n  border-color: var(--cube-border);\n}\n\n.cube-ui-overlay .dock-item .di-ico {\n  color: var(--cube-text-dim);\n  width: 16px;\n  text-align: center;\n}\n\n.cube-ui-overlay .dock-item .di-meta {\n  margin-left: auto;\n  font-size: 10.5px;\n  color: var(--cube-text-caption);\n}\n\n.cube-ui-overlay .dock-toggle {\n  display: flex;\n  align-items: center;\n  gap: 9px;\n  padding: 9px 14px 9px 11px;\n  border: 1px solid var(--cube-border-strong);\n  border-radius: 999px;\n  background: color-mix(in oklab, var(--dsw-alias-bg-layer-2) 88%, transparent);\n  color: var(--cube-text);\n  font-size: 12px;\n  cursor: pointer;\n  box-shadow: var(--cube-shadow-soft);\n  backdrop-filter: blur(14px);\n  -webkit-backdrop-filter: blur(14px);\n  transition: border-color 0.18s, background 0.18s;\n}\n\n.cube-ui-overlay .dock-toggle:hover {\n  border-color: var(--cube-border-accent);\n  background: color-mix(in oklab, var(--dsw-alias-bg-layer-2) 96%, transparent);\n}\n\n.cube-ui-overlay .dock-toggle .dock-caret {\n  color: var(--cube-text-caption);\n  transition: transform 0.25s;\n}\n\n.cube-ui-overlay .dock.open .dock-toggle .dock-caret {\n  transform: rotate(180deg);\n}\n\n/* --------------------------------------------------------------------------\n   14. Overlay: modal\n   -------------------------------------------------------------------------- */\n\n.cube-ui-overlay .modal-backdrop {\n  position: fixed;\n  inset: 0;\n  z-index: 8;\n  display: grid;\n  place-items: center;\n  padding: 24px;\n  background: var(--dsw-alias-bg-mask-1);\n  backdrop-filter: blur(5px);\n  -webkit-backdrop-filter: blur(5px);\n}\n\n.cube-ui-overlay .modal-backdrop[hidden] {\n  display: none;\n}\n\n.cube-ui-overlay .modal {\n  width: min(560px, 100%);\n  max-height: min(78vh, 720px);\n  overflow: auto;\n  border: 1px solid var(--cube-border-strong);\n  border-radius: 20px;\n  background: linear-gradient(168deg,\n    var(--dsw-alias-bg-layer-2),\n    var(--dsw-alias-bg-layer-1));\n  box-shadow: var(--cube-shadow),\n    0 22px 60px -24px color-mix(in srgb, #000 26%, transparent);\n  padding: 20px 22px 22px;\n  animation: cube-modal-in 0.22s var(--cube-ease);\n}\n\n.cube-ui-overlay .modal-head {\n  display: flex;\n  align-items: flex-start;\n  gap: 10px;\n  margin-bottom: 6px;\n}\n\n.cube-ui-overlay .modal-head h2 {\n  margin: 0;\n  font-size: 15.5px;\n  font-weight: 600;\n}\n\n.cube-ui-overlay .modal-sub {\n  margin: 0 0 16px;\n  font-size: 11.5px;\n  color: var(--cube-text-caption);\n  line-height: 1.7;\n}\n\n.cube-ui-overlay .modal-row {\n  display: flex;\n  align-items: center;\n  gap: 10px;\n  padding: 11px 12px;\n  margin-bottom: 8px;\n  border: 1px solid var(--cube-border-soft);\n  border-radius: 12px;\n  background: var(--cube-hover);\n  font-size: 12.5px;\n}\n\n.cube-ui-overlay .modal-row .mr-desc {\n  margin-left: auto;\n  font-size: 10.5px;\n  color: var(--cube-text-caption);\n}\n\n.cube-ui-overlay .modal-row .mr-note {\n  font-size: 10.5px;\n  color: var(--cube-text-caption);\n}\n\n.cube-ui-overlay .modal-note {\n  margin-top: 14px;\n  padding: 10px 12px;\n  border-left: 2px solid color-mix(in oklab, var(--cube-accent) 50%, transparent);\n  border-radius: 0 8px 8px 0;\n  background: color-mix(in oklab, var(--cube-accent) 6%, transparent);\n  font-size: 11px;\n  line-height: 1.7;\n  color: var(--cube-text-dim);\n}\n\n.cube-ui-overlay .toggle {\n  position: relative;\n  width: 34px;\n  height: 20px;\n  flex: none;\n  border-radius: 999px;\n  background: color-mix(in oklab, var(--cube-text-faint) 35%, transparent);\n  border: 1px solid var(--cube-border);\n}\n\n.cube-ui-overlay .toggle::after {\n  content: \"\";\n  position: absolute;\n  top: 2px;\n  left: 2px;\n  width: 14px;\n  height: 14px;\n  border-radius: 50%;\n  background: var(--dsw-alias-switch-thumb);\n  transition: transform 0.2s, background 0.2s;\n}\n\n.cube-ui-overlay .toggle.on {\n  background: color-mix(in oklab, var(--cube-ok) 30%, transparent);\n  border-color: color-mix(in oklab, var(--cube-ok) 40%, transparent);\n}\n\n.cube-ui-overlay .toggle.on::after {\n  transform: translateX(14px);\n  background: var(--cube-ok);\n}\n\n/* --------------------------------------------------------------------------\n   15. Scrollbars (theme-derived, thin)\n   -------------------------------------------------------------------------- */\n\n.cube-ui .sessions,\n.cube-ui .conv-body,\n.cube-ui .session-menu,\n.cube-ui-overlay .dock-panel,\n.cube-ui-overlay .rail-panel,\n.cube-ui-overlay .modal {\n  scrollbar-width: thin;\n  scrollbar-color: var(--cube-scroll-thumb) transparent;\n}\n\n.cube-ui .sessions::-webkit-scrollbar,\n.cube-ui .conv-body::-webkit-scrollbar,\n.cube-ui .session-menu::-webkit-scrollbar,\n.cube-ui-overlay .dock-panel::-webkit-scrollbar,\n.cube-ui-overlay .rail-panel::-webkit-scrollbar,\n.cube-ui-overlay .modal::-webkit-scrollbar {\n  width: 8px;\n  height: 8px;\n}\n\n.cube-ui .sessions::-webkit-scrollbar-track,\n.cube-ui .conv-body::-webkit-scrollbar-track,\n.cube-ui .session-menu::-webkit-scrollbar-track,\n.cube-ui-overlay .dock-panel::-webkit-scrollbar-track,\n.cube-ui-overlay .rail-panel::-webkit-scrollbar-track,\n.cube-ui-overlay .modal::-webkit-scrollbar-track {\n  background: transparent;\n}\n\n.cube-ui .sessions::-webkit-scrollbar-thumb,\n.cube-ui .conv-body::-webkit-scrollbar-thumb,\n.cube-ui .session-menu::-webkit-scrollbar-thumb,\n.cube-ui-overlay .dock-panel::-webkit-scrollbar-thumb,\n.cube-ui-overlay .rail-panel::-webkit-scrollbar-thumb,\n.cube-ui-overlay .modal::-webkit-scrollbar-thumb {\n  background: var(--cube-scroll-thumb);\n  border-radius: 999px;\n}\n\n.cube-ui .sessions::-webkit-scrollbar-thumb:hover,\n.cube-ui .conv-body::-webkit-scrollbar-thumb:hover,\n.cube-ui .session-menu::-webkit-scrollbar-thumb:hover,\n.cube-ui-overlay .dock-panel::-webkit-scrollbar-thumb:hover,\n.cube-ui-overlay .rail-panel::-webkit-scrollbar-thumb:hover,\n.cube-ui-overlay .modal::-webkit-scrollbar-thumb:hover {\n  background: var(--cube-scroll-thumb-hover);\n}\n\n/* --------------------------------------------------------------------------\n   16. Keyframes (prefixed: @keyframes are global by spec)\n   -------------------------------------------------------------------------- */\n\n@keyframes cube-pulse {\n  0%, 100% { opacity: 1; }\n  50% { opacity: 0.45; }\n}\n\n@keyframes cube-bounce {\n  0%, 60%, 100% { transform: translateY(0); opacity: 0.4; }\n  30% { transform: translateY(-3px); opacity: 1; }\n}\n\n@keyframes cube-dock-in {\n  from { opacity: 0; transform: translateY(6px); }\n  to { opacity: 1; transform: none; }\n}\n\n@keyframes cube-modal-in {\n  from { opacity: 0; transform: scale(0.98) translateY(8px); }\n  to { opacity: 1; transform: none; }\n}\n\n/* --------------------------------------------------------------------------\n   17. Container queries — keyed to the main panel, not the viewport\n   -------------------------------------------------------------------------- */\n\n@container cube (max-width: 760px) {\n  .cube-ui .cube-shell {\n    --cube-size: 420px;\n  }\n\n  .cube-ui .conv {\n    width: min(680px, 94cqw);\n    height: min(560px, 66%);\n    border-radius: 16px;\n  }\n\n  .cube-ui .hud {\n    gap: 5px;\n  }\n\n  .cube-ui .hud-hint {\n    font-size: 10px;\n  }\n\n  .cube-ui .pager button {\n    width: 24px;\n    height: 24px;\n  }\n\n  .cube-ui .hud-front {\n    font-size: 9.5px;\n    letter-spacing: 0.12em;\n  }\n\n  .cube-ui-overlay .diamond {\n    top: 16px;\n    right: 16px;\n    width: 104px;\n    height: 104px;\n  }\n\n  .cube-ui-overlay .dock {\n    left: 64px;\n  }\n\n  .cube-ui-overlay .dock-panel {\n    width: min(268px, 84cqw);\n  }\n}\n\n/* --------------------------------------------------------------------------\n   18. Viewport breakpoints (kept from the mock as a fallback)\n   -------------------------------------------------------------------------- */\n\n@media (max-width: 980px) {\n  .cube-ui .cube-shell {\n    --cube-size: 420px;\n  }\n\n  .cube-ui .conv {\n    width: min(720px, 78vw);\n  }\n\n  .cube-ui-overlay .brand-sub {\n    display: none;\n  }\n\n  .cube-ui-overlay .dock {\n    left: 64px;\n  }\n}\n\n@media (max-width: 640px) {\n  .cube-ui .cube-shell {\n    --cube-size: 340px;\n  }\n\n  .cube-ui .conv {\n    width: min(720px, 92vw);\n    height: min(600px, 68vh);\n  }\n\n  .cube-ui-overlay .diamond {\n    width: 104px;\n    height: 104px;\n  }\n\n  .cube-ui-overlay .rail-panel {\n    width: 82vw;\n  }\n}\n\n/* --------------------------------------------------------------------------\n   19. Motion preferences / screenshot helper\n   -------------------------------------------------------------------------- */\n\n@media (prefers-reduced-motion: reduce) {\n  .cube-ui *,\n  .cube-ui *::before,\n  .cube-ui *::after,\n  .cube-ui-overlay *,\n  .cube-ui-overlay *::before,\n  .cube-ui-overlay *::after {\n    transition-duration: 0.01ms !important;\n    animation-duration: 0.01ms !important;\n    animation-iteration-count: 1 !important;\n    scroll-behavior: auto !important;\n  }\n}\n\n/* Phase 0 screenshot helper — harmless in production, kept for parity */\n.cube-ui.no-anim *,\n.cube-ui.no-anim *::before,\n.cube-ui.no-anim *::after,\n.cube-ui-overlay.no-anim *,\n.cube-ui-overlay.no-anim *::before,\n.cube-ui-overlay.no-anim *::after {\n  transition: none !important;\n  animation: none !important;\n}\n\n/* --------------------------------------------------------------------------\n   15. Hosted conversation (client-plugin integration)\n\n   The cube does not rebuild chat: the shipped Conversation content and\n   composer are mounted through the official `conversation.content` factory in\n   its `embedded` variant. That subtree owns its own scrollport and composer\n   padding, so the seat must add neither a second scroll area nor padding.\n   -------------------------------------------------------------------------- */\n\n.cube-ui .conv-body.embedded {\n  flex: 1 1 auto;\n  min-height: 0;\n  overflow: hidden;\n  padding: 0;\n}\n\n.cube-ui .conv-body.embedded > [data-conversation-content] {\n  flex: 1 1 auto;\n  min-height: 0;\n  height: 100%;\n}\n\n/* The cube reads its panel box, not the viewport: the host wrapper is a flex\n   child of the frame's main panel and must not collapse. */\n.cube-ui-host {\n  min-height: 0;\n}\n\n/* --------------------------------------------------------------------------\n   16. Front-face conversation — the cube face IS the session surface\n\n   Rotating the cube carries the conversation out of view with its Workspace;\n   the next face brings its own Session surface in. The face is a cube wall, so\n   inside mode keeps it upright (rx = 0 in the client) and nearly flat.\n   -------------------------------------------------------------------------- */\n\n.cube-ui .face-summary { display: none; }\n\n.cube-ui .face.hosting,\n.cube-ui .stage.inside .face.hosting,\n.cube-ui[data-mode=\"inside\"] .face.hosting {\n  background: linear-gradient(168deg,\n    color-mix(in oklab, var(--dsw-alias-bg-layer-2) 97%, transparent),\n    color-mix(in oklab, var(--dsw-alias-bg-base) 98%, transparent));\n  border-color: var(--cube-border-strong);\n  border-top-color: var(--cube-border-accent);\n}\n\n.cube-ui .face.hosting .face-inner,\n.cube-ui .face.hosting .face-room {\n  opacity: 0;\n  pointer-events: none;\n}\n\n.cube-ui .face-conv {\n  position: absolute;\n  /* Slack around the surface: the conversation is inset from the cube wall so\n     the face keeps a visible frame, and gestures have room to land. */\n  inset: 18px;\n  z-index: 2;\n  display: flex;\n  flex-direction: column;\n  padding: 0;\n  gap: 0;\n  border-radius: 16px;\n  /* The stage disables touch gestures for rotation; the conversation opts back\n     into vertical panning so touch/momentum scrolling keeps working. */\n  touch-action: pan-y;\n  overscroll-behavior: contain;\n}\n\n.cube-ui .face-conv .conv-head {\n  flex: none;\n  padding: 8px 10px;\n  border: 1px solid var(--cube-border-strong);\n  border-bottom: 0;\n  border-radius: 12px 12px 0 0;\n  background: color-mix(in oklab, var(--dsw-alias-bg-layer-2) 92%, transparent);\n}\n\n.cube-ui .face-conv .conv-body {\n  flex: 1 1 auto;\n  min-height: 0;\n  padding: 10px;\n  border: 1px solid var(--cube-border-strong);\n  border-top: 0;\n  border-radius: 0 0 12px 12px;\n  background: color-mix(in oklab, var(--dsw-alias-bg-base) 94%, transparent);\n}\n\n.cube-ui .face-conv .conv-body.embedded {\n  padding: 0 2px 2px;\n}\n\n.cube-ui .stage.inside,\n.cube-ui[data-mode=\"inside\"] .stage { perspective: 4200px; }\n\n.cube-ui .stage.inside .cube-shell,\n.cube-ui[data-mode=\"inside\"] .cube-shell { transform: none; }\n\n/* --------------------------------------------------------------------------\n   17. Workspace identity at the top-left (replaces the old bottom label)\n   -------------------------------------------------------------------------- */\n\n.cube-ui .stage-title {\n  position: absolute;\n  top: 14px;\n  left: 18px;\n  z-index: 5;\n  display: flex;\n  align-items: baseline;\n  gap: 8px;\n  max-width: 46cqw;\n  pointer-events: none;\n}\n\n.cube-ui .st-name {\n  overflow: hidden;\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  font-size: 12.5px;\n  font-weight: 600;\n  letter-spacing: 0.01em;\n  color: var(--cube-text);\n}\n\n.cube-ui .st-meta {\n  flex: none;\n  font-size: 10px;\n  color: var(--cube-text-caption);\n}\n\n/* --------------------------------------------------------------------------\n   18. Rotating: faces drop to identity detail\n\n   While the cube is dragged or snapping, every face shows only what is needed\n   to recognize the Workspace (title + session count); lists, paths and the\n   embedded conversation return when the cube settles.\n   -------------------------------------------------------------------------- */\n\n.cube-ui[data-rotating=\"true\"] .face .face-path,\n.cube-ui[data-rotating=\"true\"] .face .sessions,\n.cube-ui[data-rotating=\"true\"] .face .face-foot,\n.cube-ui[data-rotating=\"true\"] .face .face-room,\n.cube-ui[data-rotating=\"true\"] .face .face-conv {\n  display: none;\n}\n\n.cube-ui[data-rotating=\"true\"] .face .face-inner {\n  justify-content: center;\n  align-items: center;\n  gap: 4px;\n  padding: 12px;\n  text-align: center;\n  opacity: 1;\n  pointer-events: none;\n}\n\n.cube-ui[data-rotating=\"true\"] .face .face-head {\n  flex-direction: column;\n  align-items: center;\n  gap: 2px;\n}\n\n.cube-ui[data-rotating=\"true\"] .face .face-idx { display: none; }\n.cube-ui[data-rotating=\"true\"] .face .face-title {\n  font-size: 15px;\n  white-space: normal;\n  overflow: visible;\n}\n.cube-ui[data-rotating=\"true\"] .face .face-summary {\n  display: block;\n  font-size: 10.5px;\n  color: var(--cube-text-caption);\n}\n\n/* --------------------------------------------------------------------------\n   19. Cube size pill (overlay, bottom-right) + title/hud adjustments\n\n   The pill scales the fitted cube between 60% and 160%; the conversation is\n   embedded in the front face, so it follows the same size. The choice is\n   remembered per browser.\n   -------------------------------------------------------------------------- */\n\n.cube-ui .stage-title {\n  flex-direction: column;\n  align-items: flex-start;\n  gap: 2px;\n}\n\n.cube-ui .st-line {\n  display: flex;\n  align-items: baseline;\n  gap: 8px;\n  max-width: 100%;\n  min-width: 0;\n}\n\n.cube-ui .st-hint {\n  font-size: 10px;\n  color: var(--cube-text-caption);\n  opacity: 0.85;\n}\n\n/* Inside the cube the conversation owns the bottom of the surface. */\n.cube-ui[data-mode=\"inside\"] .hud,\n.cube-ui .stage.inside ~ .hud {\n  display: none;\n}\n\n.cube-ui-overlay .size-pill {\n  position: fixed;\n  /* Kept clear of the overlay pet plugin (whale-chan-pet,\n     https://github.com/Phrixos-git/dsh-whale-chan-pet): its sprite is 210px\n     wide with a 28px right margin, and its summon button sits at the very\n     bottom-right corner. */\n  right: calc(210px + 28px + 6px);\n  bottom: 18px;\n  z-index: 6;\n  display: flex;\n  align-items: center;\n  gap: 2px;\n  padding: 3px 5px;\n  border: 1px solid var(--cube-border-strong);\n  border-radius: 999px;\n  background: var(--cube-surface-raised);\n  backdrop-filter: blur(18px);\n  -webkit-backdrop-filter: blur(18px);\n}\n\n.cube-ui-overlay .size-pill button {\n  display: grid;\n  place-items: center;\n  width: 24px;\n  height: 24px;\n  border: none;\n  border-radius: 50%;\n  background: transparent;\n  color: var(--cube-text-dim);\n  cursor: pointer;\n}\n\n.cube-ui-overlay .size-pill button:hover {\n  background: var(--cube-hover-active);\n  color: var(--cube-text);\n}\n\n.cube-ui-overlay .size-pill .ico svg { width: 13px; height: 13px; }\n\n.cube-ui-overlay .size-pill > span {\n  min-width: 3.1em;\n  text-align: center;\n  font-size: 10.5px;\n  letter-spacing: 0.02em;\n  color: var(--cube-text-dim);\n}\n\n/* The cube rests face-on; a longer perspective keeps the front face close to\n   its designed size instead of magnifying it with translateZ. */\n.cube-ui .stage { perspective: 3400px; }\n\n/* Touch devices: the stage keeps horizontal drag for rotation, while vertical\n   gestures are left to the conversation's scrollport (the earlier\n   touch-action:none on .stage blocked touch scrolling inside the face). */\n.cube-ui .stage { touch-action: pan-y; }\n\n/* --------------------------------------------------------------------------\n   20. Above the frame overlay + opaque conversation surfaces\n\n   The cube is raised above the frame's overlay layer (example-plugin's atmosphere\n   and similar frame art live there and were painting over the conversation).\n   The conversation surfaces themselves become opaque so text always reads.\n   -------------------------------------------------------------------------- */\n\n.cube-ui {\n  z-index: 21;\n}\n\n.cube-ui .face.hosting,\n.cube-ui .stage.inside .face.hosting,\n.cube-ui[data-mode=\"inside\"] .face.hosting {\n  background: linear-gradient(168deg,\n    var(--dsw-alias-bg-layer-2),\n    var(--dsw-alias-bg-base));\n}\n\n.cube-ui .face-conv .conv-head {\n  background: var(--dsw-alias-bg-layer-2);\n}\n\n.cube-ui .face-conv .conv-body,\n.cube-ui .face-conv .conv-body.embedded {\n  background: var(--dsw-alias-bg-base);\n}\n\n/* --------------------------------------------------------------------------\n   21. Composer: agent-preset (mode) control\n\n   The shipped UI offers the agent preset only on the New Session screen, which\n   the cube never shows (\"new session\" opens the conversation directly). This\n   entry sits in the composer tool row immediately to the right of the\n   permission control. A Session keeps its preset once its first turn has run,\n   so the trigger is disabled after that and its tooltip says why.\n   -------------------------------------------------------------------------- */\n\n.cube-ui .cube-mode {\n  position: relative;\n  display: inline-flex;\n  min-width: 0;\n}\n\n.cube-ui .cube-mode-trigger {\n  display: inline-flex;\n  align-items: center;\n  gap: 5px;\n  max-width: 198px;\n  height: 28px;\n  padding: 0 6px;\n  border: none;\n  border-radius: 8px;\n  background: transparent;\n  color: var(--cube-text-dim);\n  font: inherit;\n  font-size: 12.5px;\n  line-height: 20px;\n  white-space: nowrap;\n  cursor: pointer;\n}\n\n.cube-ui .cube-mode-trigger:hover:not(:disabled),\n.cube-ui .cube-mode.open .cube-mode-trigger {\n  background: var(--cube-hover);\n  color: var(--cube-text);\n}\n\n.cube-ui .cube-mode-trigger:disabled {\n  color: var(--cube-text-caption);\n  cursor: default;\n}\n\n.cube-ui .cube-mode-trigger .ico svg { width: 14px; height: 14px; }\n\n.cube-ui .cube-mode-caret { color: var(--cube-text-caption); }\n.cube-ui .cube-mode-caret svg { width: 12px; height: 12px; }\n\n.cube-ui .cube-mode-text {\n  min-width: 0;\n  overflow: hidden;\n  text-overflow: ellipsis;\n}\n\n/* The menu opens upward inside the face: the composer sits at its bottom edge. */\n.cube-ui .cube-mode-menu {\n  position: absolute;\n  bottom: calc(100% + 6px);\n  left: 0;\n  z-index: 12;\n  width: 252px;\n  max-height: 232px;\n  overflow: auto;\n  padding: 6px;\n  border: 1px solid var(--cube-border-strong);\n  border-radius: 12px;\n  background: var(--cube-surface-raised);\n  box-shadow: var(--cube-shadow);\n  scrollbar-width: thin;\n  scrollbar-color: var(--cube-scroll-thumb) transparent;\n}\n\n.cube-ui .cube-mode-item {\n  display: block;\n  width: 100%;\n  padding: 7px 9px;\n  border: none;\n  border-radius: 8px;\n  background: transparent;\n  color: var(--cube-text);\n  font: inherit;\n  font-size: 12.5px;\n  line-height: 18px;\n  text-align: left;\n  cursor: pointer;\n}\n\n.cube-ui .cube-mode-item:hover:not(:disabled),\n.cube-ui .cube-mode-item:focus-visible {\n  background: var(--cube-hover-active);\n}\n\n.cube-ui .cube-mode-item.current { background: var(--cube-accent-soft); }\n.cube-ui .cube-mode-item:disabled { opacity: 0.55; cursor: default; }\n\n.cube-ui .cube-mode-item-name {\n  display: flex;\n  align-items: center;\n  gap: 6px;\n  font-weight: 500;\n}\n\n.cube-ui .cube-mode-check { margin-left: auto; color: var(--cube-accent); }\n.cube-ui .cube-mode-check svg { width: 13px; height: 13px; }\n\n.cube-ui .cube-mode-item-desc {\n  display: block;\n  margin-top: 2px;\n  color: var(--cube-text-caption);\n  font-size: 10.5px;\n  line-height: 15px;\n  white-space: normal;\n}\n\n.cube-ui .cube-mode-error {\n  margin-top: 4px;\n  padding: 4px 7px;\n  color: var(--dsw-alias-state-error-primary);\n  font-size: 11px;\n  line-height: 16px;\n}\n";
-    const LOCALE_DICTS = {"ja":{"nav.title":"クイック操作","nav.session":"新規セッション","nav.plugins":"プラグイン","nav.schedules":"自動化タスク","nav.more":"その他","hint.browse":"ドラッグで回転 ・ 面のセッションをクリックで会話 ・ 右上のひし形から操作","hint.inside":"ドラッグで回転してワークスペースを切り替え ・ 会話は前面の面に表示 ・ Esc で立方体に戻る","workspace.none":"ワークスペースなし","workspace.count":"セッション","workspace.total":"ワークスペース","workspace.emptySlot":"空きスロット","workspace.emptyPath":"この面に割り当てられたワークスペースはありません","workspace.label":"ワークスペース","sessions.empty":"セッションなし","sessions.new":"新規セッション","sessions.running":"実行中","sessions.idle":"待機中","conv.title":"会話","conv.close":"立方体に戻る (Esc)","conv.empty":"このワークスペースにはまだセッションがありません。","page.prev":"前のワークスペースセット","page.next":"次のワークスペースセット","page.label":"{from}–{to} / {total}","dock.title":"設定・プラグイン","dock.settingsSection":"設定","dock.settings":"設定を開く","dock.settingsMeta":"標準の設定モーダル","dock.panels":"プラグイン UI","dock.plugins":"プラグイン管理","dock.pluginsMeta":"標準パネル","dock.schedules":"自動化タスク","dock.schedulesMeta":"標準パネル","dock.note":"プラグイン固有の設定 UI は、それぞれの標準画面から開きます。","more.title":"その他","more.close":"閉じる","more.sub":"残りのユーティリティへの入口です。","more.settings":"設定","more.settingsMeta":"DSH 標準設定","more.plugins":"プラグイン管理","more.pluginsMeta":"DSH 標準パネル","more.schedules":"自動化タスク","more.schedulesMeta":"DSH 標準パネル","more.open":"開く","more.about":"Cube UI","size.title":"立方体のサイズ","size.smaller":"立方体を小さく","size.larger":"立方体を大きく","hint.insideShort":"ドラッグで回転 ・ Esc で戻る","more.diagnostics":"診断情報","more.diagnosticsMeta":"スクロール不調時の確認用","mode.label":"エージェントモード","mode.hint":"エージェントのツール構成を選択","mode.locked":"会話が始まるとモードを変更できません","mode.error":"モードを切り替えられませんでした","mode.standard":"標準モード","mode.creator":"クリエイターモード","mode.ptc":"PTC モード","mode.minimal":"最小モード"},"en":{"nav.title":"Quick actions","nav.session":"New session","nav.plugins":"Plugins","nav.schedules":"Scheduled tasks","nav.more":"More","hint.browse":"Drag to rotate ・ click a session on a face to open it ・ use the diamond at the top right","hint.inside":"Drag to rotate between workspaces ・ the conversation lives on the front face ・ Esc returns to the cube","workspace.none":"No workspaces","workspace.count":"sessions","workspace.total":"workspaces","workspace.emptySlot":"Empty slot","workspace.emptyPath":"No workspace is assigned to this face","workspace.label":"Workspace","sessions.empty":"No sessions","sessions.new":"New session","sessions.running":"Running","sessions.idle":"Idle","conv.title":"Conversation","conv.close":"Back to the cube (Esc)","conv.empty":"This workspace has no sessions yet.","page.prev":"Previous workspace set","page.next":"Next workspace set","page.label":"{from}–{to} / {total}","dock.title":"Settings & plugins","dock.settingsSection":"Settings","dock.settings":"Open settings","dock.settingsMeta":"Standard settings dialog","dock.panels":"Plugin surfaces","dock.plugins":"Plugin manager","dock.pluginsMeta":"Standard panel","dock.schedules":"Scheduled tasks","dock.schedulesMeta":"Standard panel","dock.note":"Plugin-specific settings open from their own standard screens.","more.title":"More","more.close":"Close","more.sub":"Entrances to the remaining utilities.","more.settings":"Settings","more.settingsMeta":"Standard DSH settings","more.plugins":"Plugin manager","more.pluginsMeta":"Standard DSH panel","more.schedules":"Scheduled tasks","more.schedulesMeta":"Standard DSH panel","more.open":"Open","more.about":"Cube UI","size.title":"Cube size","size.smaller":"Shrink the cube","size.larger":"Enlarge the cube","hint.insideShort":"Drag to rotate ・ Esc to go back","more.diagnostics":"Diagnostics","more.diagnosticsMeta":"For scroll troubleshooting","mode.label":"Agent mode","mode.hint":"Choose the agent's tools","mode.locked":"The mode cannot change once the conversation starts","mode.error":"Could not change the mode","mode.standard":"Standard mode","mode.creator":"Creator mode","mode.ptc":"PTC mode","mode.minimal":"Minimal mode"},"zh":{"nav.title":"快捷操作","nav.session":"新建会话","nav.plugins":"插件","nav.schedules":"计划任务","nav.more":"更多","hint.browse":"拖动旋转 ・ 点击面上的会话即可打开 ・ 右上角菱形提供操作","hint.inside":"拖动旋转以切换工作区 ・ 会话显示在正面的面上 ・ Esc 返回立方体","workspace.none":"没有工作区","workspace.count":"个会话","workspace.total":"个工作区","workspace.emptySlot":"空槽位","workspace.emptyPath":"此面尚未分配工作区","workspace.label":"工作区","sessions.empty":"没有会话","sessions.new":"新建会话","sessions.running":"运行中","sessions.idle":"空闲","conv.title":"会话","conv.close":"返回立方体 (Esc)","conv.empty":"此工作区还没有会话。","page.prev":"上一组工作区","page.next":"下一组工作区","page.label":"{from}–{to} / {total}","dock.title":"设置与插件","dock.settingsSection":"设置","dock.settings":"打开设置","dock.settingsMeta":"标准设置对话框","dock.panels":"插件界面","dock.plugins":"插件管理","dock.pluginsMeta":"标准面板","dock.schedules":"计划任务","dock.schedulesMeta":"标准面板","dock.note":"插件专属设置请从其标准界面打开。","more.title":"更多","more.close":"关闭","more.sub":"通往其余工具的入口。","more.settings":"设置","more.settingsMeta":"DSH 标准设置","more.plugins":"插件管理","more.pluginsMeta":"DSH 标准面板","more.schedules":"计划任务","more.schedulesMeta":"DSH 标准面板","more.open":"打开","more.about":"Cube UI","size.title":"立方体大小","size.smaller":"缩小立方体","size.larger":"放大立方体","hint.insideShort":"拖动旋转 ・ Esc 返回","more.diagnostics":"诊断信息","more.diagnosticsMeta":"用于排查滚动问题","mode.label":"Agent 模式","mode.hint":"选择 Agent 的工具配置","mode.locked":"会话开始后无法更改模式","mode.error":"无法切换模式","mode.standard":"标准模式","mode.creator":"创造模式","mode.ptc":"PTC 模式","mode.minimal":"极简模式"}};
+    const STYLES = "/* ==========================================================================\n   DSH Cube UI — client-plugin stylesheet\n\n   Scope\n   -----\n   Every rule is namespaced under one of the two roots the client bundle\n   renders:\n     .cube-ui          the cube stage (position:absolute; inset:0, fills the\n                       main panel; carries data-mode=\"browse\" | \"inside\")\n     .cube-ui-overlay  floating chrome (diamond, dock, size pill, dialog, tip),\n                       rendered inside .cube-ui so it shares its layer\n   There are no html / body / :root / bare `*` selectors and no host hash\n   classes here, so nothing can leak into the standard DSH UI.\n\n   Theme\n   -----\n   Colors come from the live theme tokens (--dsw-*); cube-specific values are\n   declared as --cube-* on the two roots and derived with color-mix(), so the\n   stylesheet follows both the light and the dark theme without hard-coded\n   colors (only black alpha is used for soft shadows and face shading).\n\n   Text roles\n   ----------\n   --cube-text       primary copy\n   --cube-text-dim   secondary copy and idle controls\n   --cube-text-meta  functional metadata (paths, times, counts, hints): the\n                     theme's *secondary* label, never the caption tone, and\n                     never below --cube-font-meta (12px)\n   --cube-text-caption  decorative only (face numbers); nothing a user needs\n\n   Regression guard\n   ----------------\n   Firefox software compositing double-draws text when a 3D-transformed\n   element (.face) carries box-shadow or filter: drop-shadow. Do NOT add\n   either property to .face / .face-inner / .face-room. Depth on faces comes\n   from gradients (.face::after). The floor glow is a plain 2D element, so\n   blur() there is fine.\n   ========================================================================== */\n\n/* --------------------------------------------------------------------------\n   1. Tokens\n   -------------------------------------------------------------------------- */\n\n.cube-ui,\n.cube-ui-overlay {\n  /* type scale: five steps */\n  --cube-font-caption: 11px;\n  --cube-font-meta: 12px;\n  --cube-font-body: 13px;\n  --cube-font-title: 15px;\n  --cube-font-display: 18px;\n\n  /* space (4/8px rhythm) */\n  --cube-space-1: 4px;\n  --cube-space-2: 8px;\n  --cube-space-3: 12px;\n  --cube-space-4: 16px;\n  --cube-space-5: 24px;\n\n  /* shape / motion */\n  --cube-radius-sm: 8px;\n  --cube-radius-md: 12px;\n  --cube-radius-lg: 16px;\n  --cube-radius-pill: 999px;\n  --cube-dur-fast: 120ms;\n  --cube-dur-base: 200ms;\n  --cube-dur-slow: 400ms;\n  --cube-ease: cubic-bezier(0.2, 0.9, 0.25, 1);\n\n  /* accent — follows the theme's blue business color. Accent is for fills,\n     rules and icons; text in accent misses 4.5:1 on the light theme. */\n  --cube-accent: var(--dsw-alias-state-business-primary);\n  --cube-accent-2: var(--dsw-alias-state-done-primary);\n  --cube-accent-soft: color-mix(in oklab, var(--cube-accent) 16%, transparent);\n  --cube-accent-line: color-mix(in oklab, var(--cube-accent) 42%, transparent);\n  --cube-focus: var(--dsw-focus-ring-color, var(--cube-accent));\n\n  /* surfaces */\n  --cube-surface-raised: var(--dsw-menu-surface-fill, var(--dsw-alias-bg-layer-2));\n  --cube-hover: var(--dsw-alias-interactive-bg-hover);\n  --cube-hover-active: var(--dsw-alias-interactive-bg-active);\n\n  /* borders */\n  --cube-border-soft: var(--dsw-alias-border-l1);\n  --cube-border: var(--dsw-alias-border-l2);\n  --cube-border-strong: var(--dsw-alias-border-l3);\n  --cube-border-accent: color-mix(in oklab, var(--cube-accent) 55%, transparent);\n\n  /* text */\n  --cube-text: var(--dsw-alias-label-primary);\n  --cube-text-dim: var(--dsw-alias-label-secondary);\n  --cube-text-meta: var(--dsw-alias-label-secondary);\n  --cube-text-faint: var(--dsw-alias-label-tertiary);\n  --cube-text-caption: var(--dsw-alias-label-caption);\n  --cube-text-on-accent: var(--dsw-alias-label-primary-foreground);\n\n  /* status */\n  --cube-ok: var(--dsw-alias-state-success-primary);\n  --cube-ok-soft: var(--dsw-alias-state-success-tertiary);\n\n  /* elevation / scrollbars */\n  --cube-shadow: var(--dsw-elevation-prominent, 0 0 0 0.5px var(--dsw-alias-border-l3));\n  --cube-shadow-soft: var(--dsw-elevation-panel, 0 0 0 0.5px var(--dsw-alias-border-l1));\n  --cube-scroll-thumb: var(--dsw-alias-scrollbar-bg-l1);\n  --cube-scroll-thumb-hover: var(--dsw-alias-scrollbar-hover-l1);\n\n  /* cube faces: theme layers with only a light accent tint, so the label\n     tokens keep (close to) the contrast the theme designed them for */\n  --cube-face-top: color-mix(in oklab, var(--dsw-alias-bg-layer-3) 94%, var(--cube-accent) 6%);\n  --cube-face-mid: color-mix(in oklab, var(--dsw-alias-bg-layer-2) 97%, var(--cube-accent) 3%);\n  --cube-face-bottom: var(--dsw-alias-bg-layer-1);\n  --cube-face-front-top: color-mix(in oklab, var(--dsw-alias-bg-layer-3) 90%, var(--cube-accent) 10%);\n  --cube-face-front-bottom: color-mix(in oklab, var(--dsw-alias-bg-layer-2) 96%, var(--cube-accent) 4%);\n\n  /* overlay geometry */\n  --cube-diamond-size: 124px;\n  /* Kept clear of overlay pet plugins that sit in the bottom-right corner\n     (e.g. a 210px sprite with a 28px margin). Override if yours differs. */\n  --cube-pill-right: calc(210px + 28px + 6px);\n\n  /* inherited text/style baseline for the plugin subtree */\n  color: var(--cube-text);\n  font-family: var(--dsw-font-family);\n  -webkit-font-smoothing: antialiased;\n  -webkit-tap-highlight-color: transparent;\n}\n\n/* --------------------------------------------------------------------------\n   2. Root layout\n   -------------------------------------------------------------------------- */\n\n.cube-ui {\n  /* Initial value only: the client measures the panel and sets --cube-size\n     on this element. Nothing below may redeclare it. */\n  --cube-size: 520px;\n\n  position: absolute;\n  inset: 0;\n  z-index: 21; /* above the frame overlay layer (20) so frame art never covers text */\n  overflow: hidden;\n  container-type: inline-size;\n  container-name: cube;\n}\n\n.cube-ui-host {\n  min-height: 0;\n}\n\n.cube-ui-overlay {\n  position: fixed;\n  inset: 0;\n  z-index: 40;\n  overflow: hidden;\n  pointer-events: none; /* additive layer: only explicit chrome is clickable */\n  container-type: inline-size;\n  container-name: cube;\n}\n\n.cube-ui-overlay .diamond,\n.cube-ui-overlay .dock,\n.cube-ui-overlay .modal-backdrop {\n  pointer-events: auto;\n}\n\n/* --------------------------------------------------------------------------\n   3. Basics (scoped: no global resets)\n   -------------------------------------------------------------------------- */\n\n.cube-ui,\n.cube-ui *,\n.cube-ui *::before,\n.cube-ui *::after,\n.cube-ui-overlay,\n.cube-ui-overlay *,\n.cube-ui-overlay *::before,\n.cube-ui-overlay *::after {\n  box-sizing: border-box;\n}\n\n/* :where() keeps this at element specificity, so the host's own controls in\n   the embedded conversation keep their typography. */\n:where(.cube-ui, .cube-ui-overlay) :where(button, input, textarea) {\n  font: inherit;\n}\n\n.cube-ui button:focus-visible,\n.cube-ui-overlay button:focus-visible {\n  outline: 2px solid var(--cube-focus);\n  outline-offset: 2px;\n}\n\n.cube-ui button:disabled,\n.cube-ui-overlay button:disabled {\n  cursor: default;\n}\n\n/* Pressed feedback for the cube's own controls. */\n.cube-ui :is(.ghost-btn, .primary-btn, .icon-btn, .session, .room-title, .session-select,\n  .hint-close, .face-nav button, .pager button),\n.cube-ui-overlay :is(.ghost-btn, .icon-btn, .dq, .dock-item, .dock-toggle,\n  .size-pill button, .size-inline button) {\n  transition-property: background, color, border-color, opacity, transform;\n  transition-duration: var(--cube-dur-fast);\n}\n\n.cube-ui :is(.ghost-btn, .primary-btn, .icon-btn, .session, .room-title, .session-select,\n  .hint-close, .face-nav button, .pager button):active:not(:disabled),\n.cube-ui-overlay :is(.ghost-btn, .icon-btn, .dq, .dock-item, .dock-toggle,\n  .size-pill button, .size-inline button):active:not(:disabled) {\n  opacity: 0.85;\n  transform: scale(0.97);\n}\n\n/* announced, not shown */\n.cube-ui .cube-sr-only {\n  position: absolute;\n  width: 1px;\n  height: 1px;\n  margin: -1px;\n  padding: 0;\n  overflow: hidden;\n  clip: rect(0 0 0 0);\n  clip-path: inset(50%);\n  white-space: nowrap;\n  border: 0;\n}\n\n/* icons are inline SVG from the client bundle: sm 14 / md 16 / lg 18 */\n.cube-ui .ico,\n.cube-ui-overlay .ico {\n  display: inline-flex;\n  align-items: center;\n  justify-content: center;\n  flex: none;\n}\n\n.cube-ui .ico svg,\n.cube-ui-overlay .ico svg {\n  display: block;\n  width: 16px;\n  height: 16px;\n}\n\n.cube-ui :is(.ss-ico, .pager, .face-nav, .hint-close, .ghost-btn, .primary-btn) .ico svg,\n.cube-ui .ss-ico svg,\n.cube-ui-overlay :is(.dock-caret, .size-pill, .size-inline) .ico svg,\n.cube-ui-overlay .dock-caret svg {\n  width: 14px;\n  height: 14px;\n}\n\n.cube-ui-overlay .dq .ico svg {\n  width: 18px;\n  height: 18px;\n}\n\n/* --------------------------------------------------------------------------\n   4. Stage and cube\n   -------------------------------------------------------------------------- */\n\n.cube-ui .stage {\n  position: absolute;\n  inset: 0;\n  display: grid;\n  place-items: center;\n  /* One perspective for browse. Short enough that the cube converges and\n     reads as a solid; the client sizes the cube to leave room for it. */\n  perspective: 2000px;\n  perspective-origin: 50% 44%;\n  overflow: hidden;\n  cursor: default;\n  /* Horizontal drag rotates; vertical gestures stay with the conversation's\n     scrollport on touch devices. The face buttons and arrow keys reach the\n     top/bottom faces. */\n  touch-action: pan-y;\n  user-select: none;\n}\n\n/* Rotation is a cube gesture: only the cube surface advertises drag. */\n.cube-ui .cube-shell {\n  position: relative;\n  z-index: 1;\n  width: var(--cube-size);\n  height: var(--cube-size);\n  --h: calc(var(--cube-size) / 2);\n  transform-style: preserve-3d;\n  /* Idle tilt: at rest in browse the cube shows a sliver of its top and\n     side faces, so it reads as a cube rather than a flat card. */\n  transform: rotateX(-6deg) rotateY(8deg);\n  transition: transform 0.75s var(--cube-ease);\n  border-radius: var(--cube-radius-lg);\n  cursor: grab;\n}\n\n.cube-ui .cube-shell:focus-visible {\n  outline: 2px solid var(--cube-focus);\n  outline-offset: 10px;\n}\n\n.cube-ui .stage.grabbing .cube-shell {\n  cursor: grabbing;\n}\n\n.cube-ui .cube-shell button {\n  cursor: pointer;\n}\n\n.cube-ui .floor-glow {\n  position: absolute;\n  left: 50%;\n  bottom: 6%;\n  z-index: 0;\n  width: min(820px, 72cqw);\n  height: 190px;\n  transform: translateX(-50%);\n  border-radius: 50%;\n  pointer-events: none;\n  /* 2D element, not a 3D face: blur is safe here */\n  filter: blur(22px);\n  background: radial-gradient(closest-side,\n    color-mix(in oklab, var(--cube-accent) 30%, transparent),\n    color-mix(in oklab, var(--cube-accent) 8%, transparent) 58%,\n    transparent 72%);\n  transition: opacity 0.5s;\n}\n\n.cube-ui .cube {\n  position: absolute;\n  inset: 0;\n  transform-style: preserve-3d;\n}\n\n/* keep in sync with SNAP_MS in the client */\n.cube-ui .cube.snap {\n  transition: transform 0.46s var(--cube-ease);\n}\n\n/* ---- faces ---- */\n\n.cube-ui .face {\n  position: absolute;\n  inset: 0;\n  display: flex;\n  flex-direction: column;\n  overflow: hidden;\n  border-radius: var(--cube-radius-lg);\n  border: 1px solid var(--cube-border);\n  border-top-color: var(--cube-border-strong);\n  background: linear-gradient(155deg,\n    var(--cube-face-top) 0%,\n    var(--cube-face-mid) 58%,\n    var(--cube-face-bottom) 100%);\n  transition: background 0.5s, border-color 0.3s;\n  transform: translateZ(var(--h));\n  /* Firefox: never add box-shadow / filter here (text double-draw bug). */\n}\n\n.cube-ui .face[data-slot=\"1\"] { transform: rotateY(90deg) translateZ(var(--h)); }\n.cube-ui .face[data-slot=\"2\"] { transform: rotateY(180deg) translateZ(var(--h)); }\n.cube-ui .face[data-slot=\"3\"] { transform: rotateY(-90deg) translateZ(var(--h)); }\n.cube-ui .face[data-slot=\"4\"] { transform: rotateX(90deg) translateZ(var(--h)); }\n.cube-ui .face[data-slot=\"5\"] { transform: rotateX(-90deg) translateZ(var(--h)); }\n\n/* Shading: faces turned away from the viewer are darker, so the edges of the\n   cube read even when two faces hold similar content. A gradient, not a\n   shadow (see the regression guard). */\n.cube-ui .face::after {\n  content: \"\";\n  position: absolute;\n  inset: 0;\n  z-index: 3;\n  border-radius: inherit;\n  pointer-events: none;\n  background: linear-gradient(180deg,\n    color-mix(in srgb, #000 10%, transparent),\n    color-mix(in srgb, #000 22%, transparent));\n  transition: opacity var(--cube-dur-slow);\n}\n\n.cube-ui .face.front::after {\n  opacity: 0;\n}\n\n/* the front face: accent rim and a lighter fill */\n.cube-ui .face.front {\n  border-color: var(--cube-border-accent);\n  border-top-color: color-mix(in oklab, var(--cube-accent) 80%, transparent);\n  background: linear-gradient(155deg,\n    var(--cube-face-front-top) 0%,\n    var(--cube-face-front-bottom) 100%);\n}\n\n/* --------------------------------------------------------------------------\n   5. Face content: Workspace + Session list\n   -------------------------------------------------------------------------- */\n\n.cube-ui .face-inner {\n  position: absolute;\n  inset: 0;\n  display: flex;\n  flex-direction: column;\n  gap: var(--cube-space-2);\n  padding: var(--cube-space-4);\n  transition: opacity 0.3s, visibility 0.3s;\n}\n\n.cube-ui .face-head {\n  display: flex;\n  align-items: baseline;\n  gap: var(--cube-space-2);\n  min-width: 0;\n}\n\n/* the active Workspace (the one the conversation belongs to) */\n.cube-ui .face.selected .face-head::before {\n  content: \"\";\n  align-self: stretch;\n  width: 3px;\n  flex: none;\n  border-radius: 2px;\n  background: var(--cube-accent);\n}\n\n.cube-ui .face-idx {\n  font-size: var(--cube-font-caption);\n  letter-spacing: 0.12em;\n  color: var(--cube-text-caption); /* decorative: aria-hidden */\n  font-variant-numeric: tabular-nums;\n}\n\n.cube-ui .face-title {\n  margin: 0;\n  min-width: 0;\n  font-size: var(--cube-font-title);\n  font-weight: 600;\n  letter-spacing: 0.01em;\n  white-space: nowrap;\n  overflow: hidden;\n  text-overflow: ellipsis;\n}\n\n.cube-ui .face-summary {\n  display: none; /* shown only while rotating */\n}\n\n.cube-ui .face-path {\n  margin: -2px 0 2px;\n  font-size: var(--cube-font-meta);\n  color: var(--cube-text-meta);\n  white-space: nowrap;\n  overflow: hidden;\n  text-overflow: ellipsis;\n}\n\n.cube-ui .sessions {\n  list-style: none;\n  margin: 0;\n  padding: 0;\n  flex: 1;\n  overflow: auto;\n  display: flex;\n  flex-direction: column;\n  gap: 6px;\n}\n\n.cube-ui .session-item {\n  display: block;\n}\n\n.cube-ui .session {\n  width: 100%;\n  display: flex;\n  flex-direction: column;\n  align-items: stretch;\n  gap: 3px;\n  padding: var(--cube-space-2) 10px;\n  border: 1px solid var(--cube-border-strong);\n  border-radius: 10px;\n  background: var(--cube-hover);\n  color: var(--cube-text);\n  text-align: left;\n  cursor: pointer;\n}\n\n.cube-ui .session:hover {\n  background: var(--cube-accent-soft);\n  border-color: var(--cube-border-accent);\n}\n\n/* the Session shown in the conversation */\n.cube-ui .session[aria-current=\"true\"] {\n  border-color: var(--cube-border-accent);\n  border-left: 3px solid var(--cube-accent);\n  padding-left: 8px;\n  background: var(--cube-accent-soft);\n}\n\n.cube-ui .session .stitle {\n  font-size: var(--cube-font-body);\n  line-height: 1.35;\n  white-space: nowrap;\n  overflow: hidden;\n  text-overflow: ellipsis;\n}\n\n.cube-ui .session[aria-current=\"true\"] .stitle {\n  font-weight: 600;\n}\n\n.cube-ui .session .smeta {\n  display: flex;\n  align-items: center;\n  gap: var(--cube-space-2);\n  font-size: var(--cube-font-meta);\n  color: var(--cube-text-meta);\n  font-variant-numeric: tabular-nums;\n}\n\n/* Running: a labelled badge, not a color alone. */\n.cube-ui .run-badge {\n  display: inline-flex;\n  align-items: center;\n  gap: 5px;\n  color: var(--cube-text);\n  font-weight: 500;\n}\n\n.cube-ui .dot {\n  display: inline-block;\n  flex: none;\n  width: 7px;\n  height: 7px;\n  border-radius: 50%;\n}\n\n.cube-ui .run-badge .dot {\n  background: var(--cube-ok);\n  /* a darker ring keeps the dot at 3:1 against light faces */\n  border: 1px solid color-mix(in oklab, var(--cube-ok) 55%, var(--cube-text));\n  animation: cube-pulse 1.7s ease-in-out infinite;\n}\n\n.cube-ui .face-empty {\n  flex: 1;\n  display: grid;\n  place-items: center;\n  padding: var(--cube-space-3);\n  font-size: var(--cube-font-body);\n  line-height: 1.6;\n  text-align: center;\n  color: var(--cube-text-meta);\n  border: 1px dashed var(--cube-border-strong);\n  border-radius: 10px;\n}\n\n.cube-ui .face.loading .face-title,\n.cube-ui .face.loading .face-empty {\n  color: var(--cube-text-meta);\n  animation: cube-pulse 1.6s ease-in-out infinite;\n}\n\n.cube-ui .face-foot {\n  display: flex;\n  align-items: center;\n  justify-content: space-between;\n  gap: var(--cube-space-2);\n}\n\n.cube-ui .face-count {\n  font-size: var(--cube-font-meta);\n  color: var(--cube-text-meta);\n}\n\n/* ---- face \"inside the room\" labels (inside mode, empty front face) ---- */\n\n.cube-ui .face-room {\n  position: absolute;\n  inset: 0;\n  display: flex;\n  flex-direction: column;\n  justify-content: space-between;\n  padding: 20px;\n  opacity: 0;\n  visibility: hidden;\n  transition: opacity var(--cube-dur-slow), visibility var(--cube-dur-slow);\n}\n\n.cube-ui .room-idx {\n  font-size: var(--cube-font-meta);\n  letter-spacing: 0.16em;\n  color: var(--cube-text-meta);\n}\n\n.cube-ui .room-foot {\n  display: flex;\n  align-items: flex-end;\n  justify-content: space-between;\n  gap: 10px;\n}\n\n.cube-ui .room-title {\n  padding: 0;\n  border: none;\n  background: transparent;\n  font-size: var(--cube-font-title);\n  font-weight: 600;\n  color: var(--cube-text);\n  text-align: left;\n}\n\n.cube-ui button.room-title {\n  cursor: pointer;\n}\n\n.cube-ui .room-count {\n  font-size: var(--cube-font-meta);\n  color: var(--cube-text-meta);\n}\n\n/* --------------------------------------------------------------------------\n   6. \"Inside the cube\" mode\n   -------------------------------------------------------------------------- */\n\n.cube-ui[data-mode=\"inside\"] .floor-glow {\n  opacity: 0.35;\n}\n\n/* inside rests face-on, under a long perspective that keeps the hosted\n   conversation close to its designed size */\n.cube-ui[data-mode=\"inside\"] .stage {\n  perspective: 4200px;\n}\n\n.cube-ui[data-mode=\"inside\"] .cube-shell {\n  transform: none;\n}\n\n/* the walls become glass frames with a faint grid */\n.cube-ui[data-mode=\"inside\"] .face {\n  background:\n    linear-gradient(color-mix(in oklab, var(--cube-accent) 9%, transparent) 1px,\n      transparent 1px) 0 0 / 52px 52px,\n    linear-gradient(90deg, color-mix(in oklab, var(--cube-accent) 9%, transparent) 1px,\n      transparent 1px) 0 0 / 52px 52px,\n    color-mix(in oklab, var(--dsw-alias-bg-base) 24%, transparent);\n  border-color: var(--cube-border-soft);\n  border-top-color: var(--cube-border-soft);\n}\n\n.cube-ui[data-mode=\"inside\"] .face.front {\n  border-color: color-mix(in oklab, var(--cube-accent) 34%, transparent);\n  background: color-mix(in oklab, var(--cube-accent) 5%, transparent);\n}\n\n.cube-ui[data-mode=\"inside\"] .face-inner {\n  opacity: 0;\n  visibility: hidden;\n}\n\n.cube-ui[data-mode=\"inside\"] .face.front:not(.hosting) .face-room {\n  opacity: 1;\n  visibility: visible;\n}\n\n/* --------------------------------------------------------------------------\n   7. Hosted conversation — the front face IS the Session surface\n\n   The shipped Conversation content and composer are mounted through the\n   official `conversation.content` factory in its `embedded` variant. That\n   subtree owns its scrollport and composer padding, so the seat adds neither\n   a second scroll area nor padding. Surfaces are opaque theme tokens so text\n   always reads.\n   -------------------------------------------------------------------------- */\n\n.cube-ui .face.hosting,\n.cube-ui[data-mode=\"inside\"] .face.hosting {\n  background: linear-gradient(168deg,\n    var(--dsw-alias-bg-layer-2),\n    var(--dsw-alias-bg-base));\n  border-color: var(--cube-border-strong);\n  border-top-color: var(--cube-border-accent);\n}\n\n.cube-ui .face.hosting .face-inner,\n.cube-ui .face.hosting .face-room {\n  opacity: 0;\n  visibility: hidden;\n}\n\n.cube-ui .face-conv {\n  position: absolute;\n  /* Slack around the surface: the conversation is inset from the cube wall so\n     the face keeps a visible frame. */\n  inset: 18px;\n  z-index: 2;\n  display: flex;\n  flex-direction: column;\n  border-radius: var(--cube-radius-lg);\n  cursor: default;\n  /* The conversation opts into vertical panning so touch/momentum scrolling\n     keeps working. */\n  touch-action: pan-y;\n  overscroll-behavior: contain;\n}\n\n/* The stage disables selection for rotation, but the conversation is a\n   reading surface: its text stays selectable while its chrome is not. */\n.cube-ui .face-conv,\n.cube-ui .face-conv * {\n  user-select: text;\n}\n\n.cube-ui .face-conv .conv-head,\n.cube-ui .face-conv .conv-head *,\n.cube-ui .face-conv button {\n  user-select: none;\n}\n\n.cube-ui .conv-head {\n  position: relative;\n  z-index: 2;\n  flex: none;\n  padding: var(--cube-space-2) 10px;\n  border: 1px solid var(--cube-border-strong);\n  border-bottom: 0;\n  border-radius: var(--cube-radius-md) var(--cube-radius-md) 0 0;\n  background: var(--dsw-alias-bg-layer-2);\n}\n\n.cube-ui .conv-topline {\n  display: flex;\n  align-items: center;\n  gap: var(--cube-space-2);\n  min-width: 0;\n}\n\n.cube-ui .conv-ws {\n  flex: 1 1 auto;\n  display: flex;\n  align-items: center;\n  gap: var(--cube-space-2);\n  min-width: 0;\n}\n\n.cube-ui .conv-ws .conv-path {\n  min-width: 0;\n  color: var(--cube-text-meta);\n  font-size: var(--cube-font-meta);\n  white-space: nowrap;\n  overflow: hidden;\n  text-overflow: ellipsis;\n}\n\n.cube-ui .conv-ws .dot {\n  width: 6px;\n  height: 6px;\n  background: var(--cube-accent);\n}\n\n.cube-ui .conv-nav {\n  flex: none;\n  display: flex;\n  align-items: center;\n  gap: 2px;\n}\n\n.cube-ui .icon-btn,\n.cube-ui-overlay .icon-btn {\n  flex: none;\n  width: 28px;\n  height: 28px;\n  display: grid;\n  place-items: center;\n  padding: 0;\n  border: 1px solid transparent;\n  border-radius: var(--cube-radius-sm);\n  background: transparent;\n  color: var(--cube-text-dim);\n  cursor: pointer;\n}\n\n.cube-ui .icon-btn:hover,\n.cube-ui-overlay .icon-btn:hover {\n  background: var(--cube-hover-active);\n  color: var(--cube-text);\n}\n\n.cube-ui .conv-sessionline {\n  position: relative;\n  margin-top: var(--cube-space-2);\n}\n\n.cube-ui .session-select {\n  width: 100%;\n  display: flex;\n  align-items: center;\n  gap: var(--cube-space-2);\n  padding: var(--cube-space-2) var(--cube-space-3);\n  border: 1px solid var(--cube-border-strong);\n  border-radius: 11px;\n  background: var(--cube-hover);\n  color: var(--cube-text);\n  font-size: var(--cube-font-body);\n  text-align: left;\n  cursor: pointer;\n}\n\n.cube-ui .session-select:hover {\n  border-color: var(--cube-border-accent);\n  background: var(--cube-accent-soft);\n}\n\n.cube-ui .ss-ico {\n  color: var(--cube-text-dim);\n}\n\n.cube-ui .ss-label {\n  flex: 1;\n  min-width: 0;\n  white-space: nowrap;\n  overflow: hidden;\n  text-overflow: ellipsis;\n}\n\n.cube-ui .ss-status {\n  flex: none;\n  display: inline-flex;\n  align-items: center;\n  gap: 5px;\n  padding: 2px var(--cube-space-2);\n  border: 1px solid var(--cube-border-strong);\n  border-radius: var(--cube-radius-pill);\n  color: var(--cube-text-dim);\n  font-size: var(--cube-font-meta);\n}\n\n.cube-ui .ss-status.running {\n  color: var(--cube-text);\n  border-color: color-mix(in oklab, var(--cube-ok) 65%, transparent);\n  background: var(--cube-ok-soft);\n}\n\n.cube-ui .ss-status.running::before {\n  content: \"\";\n  width: 7px;\n  height: 7px;\n  border-radius: 50%;\n  background: var(--cube-ok);\n  border: 1px solid color-mix(in oklab, var(--cube-ok) 55%, var(--cube-text));\n}\n\n.cube-ui .ss-caret {\n  flex: none;\n  width: 0;\n  height: 0;\n  border-left: 4px solid transparent;\n  border-right: 4px solid transparent;\n  border-top: 5px solid var(--cube-text-dim);\n  transition: transform var(--cube-dur-base);\n}\n\n.cube-ui .session-select[aria-expanded=\"true\"] .ss-caret {\n  transform: rotate(180deg);\n}\n\n/* The client clamps max-height to the room left inside the face, and flips\n   the menu upward (.up) when there is more room above. */\n.cube-ui .session-menu {\n  position: absolute;\n  left: 0;\n  right: 0;\n  top: calc(100% + 6px);\n  z-index: 10;\n  max-height: 258px;\n  overflow: auto;\n  padding: 6px;\n  border: 1px solid var(--cube-border-strong);\n  border-radius: 13px;\n  background: var(--cube-surface-raised);\n  box-shadow: var(--cube-shadow);\n  backdrop-filter: blur(20px);\n  -webkit-backdrop-filter: blur(20px);\n}\n\n.cube-ui .session-menu.up {\n  top: auto;\n  bottom: calc(100% + 6px);\n}\n\n.cube-ui .session-menu button {\n  width: 100%;\n  display: flex;\n  align-items: center;\n  gap: var(--cube-space-2);\n  padding: var(--cube-space-2) 10px;\n  border: 1px solid transparent;\n  border-radius: 9px;\n  background: transparent;\n  color: var(--cube-text);\n  font-size: var(--cube-font-body);\n  text-align: left;\n  cursor: pointer;\n}\n\n.cube-ui .session-menu button:hover,\n.cube-ui .session-menu button:focus-visible {\n  background: var(--cube-hover-active);\n}\n\n.cube-ui .session-menu button.current {\n  background: var(--cube-accent-soft);\n  border-color: var(--cube-border-accent);\n  font-weight: 600;\n}\n\n.cube-ui .session-menu .mi-title {\n  min-width: 0;\n  overflow: hidden;\n  text-overflow: ellipsis;\n  white-space: nowrap;\n}\n\n.cube-ui .session-menu .mi-meta {\n  margin-left: auto;\n  flex: none;\n  font-size: var(--cube-font-meta);\n  font-weight: 400;\n  color: var(--cube-text-meta);\n}\n\n.cube-ui .session-menu .mi-meta.running {\n  color: var(--cube-text);\n}\n\n.cube-ui .session-menu .mi-new {\n  margin-top: var(--cube-space-1);\n  border-top-color: var(--cube-border-soft);\n  border-radius: 0 0 9px 9px;\n  color: var(--cube-text);\n  font-weight: 600;\n}\n\n.cube-ui .session-menu .mi-new .ico {\n  color: var(--cube-accent);\n}\n\n.cube-ui .conv-body {\n  flex: 1 1 auto;\n  min-height: 0;\n  overflow: auto;\n  display: flex;\n  flex-direction: column;\n  padding: 10px;\n  border: 1px solid var(--cube-border-strong);\n  border-top: 0;\n  border-radius: 0 0 var(--cube-radius-md) var(--cube-radius-md);\n  background: var(--dsw-alias-bg-base);\n}\n\n.cube-ui .conv-body.embedded {\n  overflow: hidden;\n  padding: 0 2px 2px;\n}\n\n.cube-ui .conv-body.embedded > [data-conversation-content] {\n  flex: 1 1 auto;\n  min-height: 0;\n  height: 100%;\n}\n\n.cube-ui .conv-empty {\n  margin: auto;\n  text-align: center;\n  color: var(--cube-text-dim);\n  font-size: var(--cube-font-body);\n  line-height: 1.8;\n}\n\n.cube-ui .conv-empty p {\n  margin: 0 0 var(--cube-space-3);\n}\n\n/* --------------------------------------------------------------------------\n   8. Workspace identity (top-left)\n   -------------------------------------------------------------------------- */\n\n.cube-ui .stage-title {\n  position: absolute;\n  top: 14px;\n  left: 18px;\n  z-index: 5;\n  display: flex;\n  flex-direction: column;\n  align-items: flex-start;\n  gap: 2px;\n  max-width: 46cqw;\n  pointer-events: none;\n}\n\n.cube-ui .st-line {\n  display: flex;\n  align-items: baseline;\n  gap: var(--cube-space-2);\n  max-width: 100%;\n  min-width: 0;\n}\n\n.cube-ui .st-name {\n  overflow: hidden;\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  font-size: var(--cube-font-body);\n  font-weight: 600;\n  letter-spacing: 0.01em;\n  color: var(--cube-text);\n}\n\n.cube-ui .st-meta,\n.cube-ui .st-hint {\n  flex: none;\n  font-size: var(--cube-font-meta);\n  color: var(--cube-text-meta);\n}\n\n/* --------------------------------------------------------------------------\n   9. HUD: face buttons, pager, hint\n   -------------------------------------------------------------------------- */\n\n.cube-ui .hud {\n  position: absolute;\n  left: 50%;\n  bottom: 16px;\n  transform: translateX(-50%);\n  z-index: 4;\n  display: flex;\n  flex-direction: column;\n  align-items: center;\n  gap: var(--cube-space-2);\n  width: max-content;\n  max-width: calc(100% - 32px);\n  pointer-events: none;\n}\n\n.cube-ui .hud > *,\n.cube-ui .hud-row > * {\n  pointer-events: auto;\n}\n\n/* Inside the cube the conversation owns the bottom of the surface; its\n   header carries the face buttons and the pager instead. */\n.cube-ui[data-mode=\"inside\"] .hud {\n  display: none;\n}\n\n.cube-ui .hud-row {\n  display: flex;\n  flex-wrap: wrap;\n  justify-content: center;\n  align-items: center;\n  gap: var(--cube-space-2);\n}\n\n/* pill surfaces sit on a scrim so they read over any frame art */\n.cube-ui .face-nav,\n.cube-ui .pager,\n.cube-ui .hud-hint {\n  display: flex;\n  align-items: center;\n  gap: 2px;\n  padding: 3px 5px;\n  border: 1px solid var(--cube-border-strong);\n  border-radius: var(--cube-radius-pill);\n  background: color-mix(in oklab, var(--dsw-alias-bg-layer-2) 88%, transparent);\n  backdrop-filter: blur(14px);\n  -webkit-backdrop-filter: blur(14px);\n}\n\n.cube-ui .face-nav button,\n.cube-ui .pager button,\n.cube-ui .hint-close {\n  width: 28px;\n  height: 28px;\n  display: grid;\n  place-items: center;\n  padding: 0;\n  border: none;\n  border-radius: 50%;\n  background: transparent;\n  color: var(--cube-text-dim);\n  cursor: pointer;\n}\n\n.cube-ui .face-nav button:hover,\n.cube-ui .pager button:hover:not(:disabled),\n.cube-ui .hint-close:hover {\n  background: var(--cube-hover-active);\n  color: var(--cube-text);\n}\n\n.cube-ui .pager button:disabled {\n  opacity: 0.4;\n}\n\n.cube-ui .face-nav-label,\n.cube-ui .pager > span {\n  padding: 0 6px;\n  font-size: var(--cube-font-meta);\n  color: var(--cube-text-dim);\n  letter-spacing: 0.02em;\n  font-variant-numeric: tabular-nums;\n  white-space: nowrap;\n}\n\n/* the compact pager in the conversation header */\n.cube-ui .pager.compact {\n  padding: 0 2px;\n  border-color: var(--cube-border);\n  background: transparent;\n  backdrop-filter: none;\n  -webkit-backdrop-filter: none;\n}\n\n.cube-ui .pager.compact button {\n  width: 24px;\n  height: 24px;\n}\n\n.cube-ui .hud-hint {\n  gap: 6px;\n  padding: 3px 4px 3px 14px;\n  font-size: var(--cube-font-body);\n  color: var(--cube-text-meta);\n  text-align: center;\n}\n\n.cube-ui .hint-close {\n  width: 24px;\n  height: 24px;\n}\n\n/* --------------------------------------------------------------------------\n   10. First-run guide, toast, load error\n   -------------------------------------------------------------------------- */\n\n.cube-ui .coach {\n  position: absolute;\n  top: 14px;\n  left: 50%;\n  z-index: 6;\n  width: min(360px, calc(100% - 32px));\n  transform: translateX(-50%);\n  padding: var(--cube-space-4);\n  border: 1px solid var(--cube-border-accent);\n  border-top: 3px solid var(--cube-accent);\n  border-radius: var(--cube-radius-lg);\n  background: var(--cube-surface-raised);\n  box-shadow: var(--cube-shadow),\n    0 18px 48px -20px color-mix(in srgb, #000 22%, transparent);\n  animation: cube-coach-in 0.24s var(--cube-ease);\n}\n\n.cube-ui .coach-step {\n  margin: 0 0 var(--cube-space-1);\n  font-size: var(--cube-font-meta);\n  color: var(--cube-text-meta);\n}\n\n.cube-ui .coach h2 {\n  margin: 0 0 6px;\n  font-size: var(--cube-font-title);\n  font-weight: 600;\n}\n\n.cube-ui .coach-body {\n  margin: 0 0 var(--cube-space-3);\n  font-size: var(--cube-font-body);\n  line-height: 1.65;\n  color: var(--cube-text-dim);\n}\n\n.cube-ui .coach-actions {\n  display: flex;\n  justify-content: flex-end;\n  gap: var(--cube-space-2);\n}\n\n.cube-ui .cube-toast {\n  position: absolute;\n  left: 50%;\n  top: 56px;\n  z-index: 7;\n  max-width: calc(100% - 32px);\n  transform: translateX(-50%);\n  padding: var(--cube-space-2) var(--cube-space-4);\n  border: 1px solid var(--cube-border-strong);\n  border-radius: var(--cube-radius-pill);\n  background: var(--dsw-alias-tooltip-bg);\n  color: var(--dsw-alias-toast-label);\n  font-size: var(--cube-font-body);\n  animation: cube-dock-in 0.2s var(--cube-ease);\n}\n\n.cube-ui .stage-error {\n  position: absolute;\n  z-index: 3;\n  display: flex;\n  flex-direction: column;\n  align-items: center;\n  gap: var(--cube-space-3);\n  padding: var(--cube-space-5);\n  border: 1px solid var(--cube-border-strong);\n  border-radius: var(--cube-radius-lg);\n  background: var(--cube-surface-raised);\n  font-size: var(--cube-font-body);\n  text-align: center;\n}\n\n.cube-ui .stage-error p {\n  margin: 0;\n  color: var(--dsw-alias-state-error-primary, var(--cube-text));\n}\n\n/* --------------------------------------------------------------------------\n   11. Buttons\n   -------------------------------------------------------------------------- */\n\n.cube-ui .ghost-btn,\n.cube-ui-overlay .ghost-btn,\n.cube-ui .primary-btn {\n  display: inline-flex;\n  align-items: center;\n  gap: 6px;\n  min-height: 30px;\n  padding: 6px var(--cube-space-3);\n  border-radius: 9px;\n  font-size: var(--cube-font-body);\n  cursor: pointer;\n}\n\n.cube-ui .ghost-btn,\n.cube-ui-overlay .ghost-btn {\n  border: 1px solid var(--cube-border-strong);\n  background: var(--cube-hover);\n  color: var(--cube-text);\n}\n\n.cube-ui .ghost-btn:hover:not(:disabled),\n.cube-ui-overlay .ghost-btn:hover:not(:disabled) {\n  background: var(--cube-accent-soft);\n  border-color: var(--cube-border-accent);\n}\n\n.cube-ui-overlay .ghost-btn:disabled {\n  opacity: 0.5;\n}\n\n/* the one strong action per surface: \"+ new session\" */\n.cube-ui .primary-btn {\n  border: 1px solid var(--cube-accent);\n  background: var(--dsw-alias-button-info-fill, var(--cube-accent));\n  color: var(--cube-text-on-accent);\n  font-weight: 600;\n}\n\n.cube-ui .primary-btn:hover {\n  background: var(--dsw-alias-button-info-hover, var(--cube-accent));\n}\n\n/* --------------------------------------------------------------------------\n   12. Rotating: faces drop to identity detail\n\n   While the cube is dragged or snapping, every face shows only what is needed\n   to recognize the Workspace (title + session count); lists, paths and the\n   embedded conversation return when the cube settles. The face number stays\n   in its corner so nothing jumps when the cube stops.\n   -------------------------------------------------------------------------- */\n\n.cube-ui[data-rotating=\"true\"] .face .face-path,\n.cube-ui[data-rotating=\"true\"] .face .sessions,\n.cube-ui[data-rotating=\"true\"] .face .face-foot,\n.cube-ui[data-rotating=\"true\"] .face .face-room,\n.cube-ui[data-rotating=\"true\"] .face .face-conv {\n  display: none;\n}\n\n.cube-ui[data-rotating=\"true\"] .face .face-inner {\n  justify-content: center;\n  align-items: center;\n  gap: var(--cube-space-1);\n  text-align: center;\n  opacity: 1;\n  visibility: visible;\n  pointer-events: none;\n}\n\n.cube-ui[data-rotating=\"true\"] .face .face-head {\n  flex-direction: column;\n  align-items: center;\n  gap: 2px;\n}\n\n.cube-ui[data-rotating=\"true\"] .face .face-idx {\n  position: absolute;\n  top: var(--cube-space-4);\n  left: var(--cube-space-4);\n}\n\n.cube-ui[data-rotating=\"true\"] .face .face-title {\n  font-size: var(--cube-font-display);\n  white-space: normal;\n  overflow: visible;\n}\n\n.cube-ui[data-rotating=\"true\"] .face .face-summary {\n  display: block;\n  font-size: var(--cube-font-meta);\n  color: var(--cube-text-meta);\n}\n\n/* --------------------------------------------------------------------------\n   13. Overlay: diamond navigation (top-right)\n\n   The square is turned 45deg, so its bounding box is size * sqrt(2). The\n   offset keeps the corners (size * 0.2071 past each edge) inside the frame.\n   -------------------------------------------------------------------------- */\n\n.cube-ui-overlay .diamond {\n  position: fixed;\n  top: calc(var(--cube-diamond-size) * 0.2071 + 14px);\n  right: calc(var(--cube-diamond-size) * 0.2071 + 14px);\n  width: var(--cube-diamond-size);\n  height: var(--cube-diamond-size);\n  z-index: 5;\n}\n\n.cube-ui-overlay .diamond-shape {\n  position: absolute;\n  inset: 0;\n  display: grid;\n  grid-template-columns: 1fr 1fr;\n  grid-template-rows: 1fr 1fr;\n  gap: 2px;\n  transform: rotate(45deg);\n  border-radius: 13px;\n  overflow: hidden;\n  border: 1px solid var(--cube-border-strong);\n  box-shadow: var(--cube-shadow),\n    0 14px 34px -18px color-mix(in srgb, #000 22%, transparent);\n  background: var(--cube-border);\n}\n\n.cube-ui-overlay .dq {\n  display: grid;\n  place-items: center;\n  padding: 0;\n  border: none;\n  background: var(--dsw-alias-bg-layer-2);\n  color: var(--cube-text-dim);\n  cursor: pointer;\n}\n\n/* primary quadrant: new session */\n.cube-ui-overlay .dq[data-action=\"session\"] {\n  background: color-mix(in oklab, var(--cube-accent) 20%, var(--dsw-alias-bg-layer-2));\n  color: var(--cube-text);\n}\n\n.cube-ui-overlay .dq > span {\n  display: block;\n  transform: rotate(-45deg);\n  line-height: 1;\n}\n\n.cube-ui-overlay .dq:hover,\n.cube-ui-overlay .dq:focus-visible {\n  background: linear-gradient(150deg,\n    color-mix(in oklab, var(--cube-accent) 34%, transparent),\n    color-mix(in oklab, var(--cube-accent-2) 26%, transparent));\n  color: var(--cube-text);\n}\n\n.cube-ui-overlay .dq:focus-visible {\n  outline-offset: -4px;\n}\n\n.cube-ui-overlay .tip {\n  position: fixed;\n  z-index: 20;\n  padding: 6px 10px;\n  border-radius: var(--cube-radius-sm);\n  border: 1px solid var(--cube-border-strong);\n  background: var(--dsw-alias-tooltip-bg);\n  color: var(--dsw-alias-toast-label);\n  font-size: var(--cube-font-meta);\n  white-space: nowrap;\n  pointer-events: none;\n  opacity: 0;\n  transform: translate(-100%, -50%);\n  transition: opacity 0.15s;\n}\n\n.cube-ui-overlay .tip.show {\n  opacity: 1;\n}\n\n/* --------------------------------------------------------------------------\n   14. Overlay: dock (settings / plugin launcher, bottom-left) + size pill\n   -------------------------------------------------------------------------- */\n\n.cube-ui-overlay .dock {\n  position: fixed;\n  left: 72px; /* clear of the collapsed standard sidebar rail */\n  bottom: 16px;\n  z-index: 6;\n  display: flex;\n  flex-direction: column;\n  gap: 10px;\n  align-items: flex-start;\n}\n\n.cube-ui-overlay .dock-panel {\n  width: 268px;\n  max-height: min(430px, 54vh);\n  overflow: auto;\n  padding: var(--cube-space-3);\n  border: 1px solid var(--cube-border-strong);\n  border-radius: var(--cube-radius-lg);\n  background: var(--cube-surface-raised);\n  box-shadow: var(--cube-shadow),\n    0 18px 48px -20px color-mix(in srgb, #000 22%, transparent);\n  backdrop-filter: blur(18px);\n  -webkit-backdrop-filter: blur(18px);\n  display: none;\n}\n\n.cube-ui-overlay .dock.open .dock-panel {\n  display: block;\n  animation: cube-dock-in 0.22s var(--cube-ease);\n}\n\n.cube-ui-overlay .dock-section + .dock-section {\n  margin-top: var(--cube-space-3);\n  padding-top: var(--cube-space-3);\n  border-top: 1px solid var(--cube-border-soft);\n}\n\n.cube-ui-overlay .dock-section h3 {\n  margin: 0 0 var(--cube-space-2);\n  font-size: var(--cube-font-caption);\n  font-weight: 600;\n  letter-spacing: 0.12em;\n  text-transform: uppercase;\n  color: var(--cube-text-meta);\n}\n\n.cube-ui-overlay .dock-item {\n  width: 100%;\n  display: flex;\n  align-items: center;\n  gap: 9px;\n  padding: 9px 10px;\n  border: 1px solid transparent;\n  border-radius: 9px;\n  background: transparent;\n  color: var(--cube-text);\n  font-size: var(--cube-font-body);\n  text-align: left;\n  cursor: pointer;\n}\n\n.cube-ui-overlay .dock-item:hover:not(:disabled) {\n  background: var(--cube-hover);\n  border-color: var(--cube-border);\n}\n\n.cube-ui-overlay .dock-item:disabled {\n  color: var(--cube-text-dim);\n}\n\n.cube-ui-overlay .dock-item .di-ico {\n  color: var(--cube-text-dim);\n}\n\n.cube-ui-overlay .dock-item .di-meta {\n  margin-left: auto;\n  font-size: var(--cube-font-meta);\n  color: var(--cube-text-meta);\n  text-align: right;\n}\n\n.cube-ui-overlay .dock-toggle {\n  display: flex;\n  align-items: center;\n  gap: 9px;\n  min-height: 36px;\n  padding: var(--cube-space-2) 14px var(--cube-space-2) 11px;\n  border: 1px solid var(--cube-border-strong);\n  border-radius: var(--cube-radius-pill);\n  background: color-mix(in oklab, var(--dsw-alias-bg-layer-2) 88%, transparent);\n  color: var(--cube-text);\n  font-size: var(--cube-font-body);\n  cursor: pointer;\n  box-shadow: var(--cube-shadow-soft);\n  backdrop-filter: blur(14px);\n  -webkit-backdrop-filter: blur(14px);\n}\n\n.cube-ui-overlay .dock-toggle:hover {\n  border-color: var(--cube-border-accent);\n  background: color-mix(in oklab, var(--dsw-alias-bg-layer-2) 96%, transparent);\n}\n\n.cube-ui-overlay .dock-toggle .dock-caret {\n  color: var(--cube-text-dim);\n  transition: transform 0.25s;\n}\n\n.cube-ui-overlay .dock.open .dock-toggle .dock-caret {\n  transform: rotate(180deg);\n}\n\n.cube-ui-overlay .size-pill,\n.cube-ui-overlay .size-inline {\n  display: flex;\n  align-items: center;\n  gap: 2px;\n  padding: 3px 5px;\n  border: 1px solid var(--cube-border-strong);\n  border-radius: var(--cube-radius-pill);\n  background: var(--cube-surface-raised);\n}\n\n.cube-ui-overlay .size-pill {\n  position: fixed;\n  right: var(--cube-pill-right);\n  bottom: 18px;\n  z-index: 6;\n  backdrop-filter: blur(18px);\n  -webkit-backdrop-filter: blur(18px);\n}\n\n.cube-ui-overlay .size-inline {\n  flex: none;\n}\n\n.cube-ui-overlay .size-pill button,\n.cube-ui-overlay .size-inline button {\n  display: grid;\n  place-items: center;\n  min-width: 28px;\n  height: 28px;\n  padding: 0;\n  border: none;\n  border-radius: var(--cube-radius-pill);\n  background: transparent;\n  color: var(--cube-text-dim);\n  cursor: pointer;\n}\n\n.cube-ui-overlay .size-pill button:hover:not(:disabled),\n.cube-ui-overlay .size-inline button:hover:not(:disabled) {\n  background: var(--cube-hover-active);\n  color: var(--cube-text);\n}\n\n.cube-ui-overlay .size-pill button:disabled,\n.cube-ui-overlay .size-inline button:disabled {\n  opacity: 0.4;\n}\n\n.cube-ui-overlay :is(.size-pill, .size-inline) .size-value {\n  min-width: 3.6em;\n  padding: 0 6px;\n  font-size: var(--cube-font-meta);\n  letter-spacing: 0.02em;\n  font-variant-numeric: tabular-nums;\n}\n\n/* --------------------------------------------------------------------------\n   15. Overlay: dialog (\"more\")\n   -------------------------------------------------------------------------- */\n\n.cube-ui-overlay .modal-backdrop {\n  position: fixed;\n  inset: 0;\n  z-index: 8;\n  display: grid;\n  place-items: center;\n  padding: var(--cube-space-5);\n  background: var(--dsw-alias-bg-mask-1);\n  backdrop-filter: blur(5px);\n  -webkit-backdrop-filter: blur(5px);\n}\n\n.cube-ui-overlay .modal {\n  width: min(560px, 100%);\n  max-height: min(84vh, 760px);\n  overflow: auto;\n  border: 1px solid var(--cube-border-strong);\n  border-radius: 20px;\n  background: linear-gradient(168deg,\n    var(--dsw-alias-bg-layer-2),\n    var(--dsw-alias-bg-layer-1));\n  box-shadow: var(--cube-shadow),\n    0 22px 60px -24px color-mix(in srgb, #000 26%, transparent);\n  padding: 20px 22px 22px;\n  animation: cube-modal-in 0.22s var(--cube-ease);\n}\n\n.cube-ui-overlay .modal-head {\n  display: flex;\n  align-items: flex-start;\n  gap: 10px;\n  margin-bottom: 6px;\n}\n\n.cube-ui-overlay .modal-head h2 {\n  margin: 0;\n  flex: 1;\n  font-size: var(--cube-font-title);\n  font-weight: 600;\n}\n\n.cube-ui-overlay .modal-sub {\n  margin: 0 0 var(--cube-space-4);\n  font-size: var(--cube-font-body);\n  color: var(--cube-text-meta);\n  line-height: 1.7;\n}\n\n.cube-ui-overlay .modal-row {\n  display: flex;\n  align-items: center;\n  gap: var(--cube-space-3);\n  padding: 10px var(--cube-space-3);\n  margin-bottom: var(--cube-space-2);\n  border: 1px solid var(--cube-border);\n  border-radius: var(--cube-radius-md);\n  background: var(--cube-hover);\n}\n\n.cube-ui-overlay .mr-text {\n  flex: 1;\n  min-width: 0;\n  display: flex;\n  flex-direction: column;\n  gap: 2px;\n}\n\n.cube-ui-overlay .mr-name {\n  font-size: var(--cube-font-body);\n  font-weight: 500;\n}\n\n.cube-ui-overlay .mr-note {\n  font-size: var(--cube-font-meta);\n  color: var(--cube-text-meta);\n}\n\n.cube-ui-overlay .modal-note {\n  margin: var(--cube-space-3) 0 0;\n  padding: 10px var(--cube-space-3);\n  border-left: 2px solid color-mix(in oklab, var(--cube-accent) 50%, transparent);\n  border-radius: 0 var(--cube-radius-sm) var(--cube-radius-sm) 0;\n  background: color-mix(in oklab, var(--cube-accent) 6%, transparent);\n  font-size: var(--cube-font-meta);\n  line-height: 1.7;\n  color: var(--cube-text-dim);\n}\n\n.cube-ui-overlay .modal-note.diag {\n  white-space: pre-wrap;\n  word-break: break-all;\n  font-family: var(--dsw-font-family-mono, ui-monospace, monospace);\n}\n\n/* --------------------------------------------------------------------------\n   16. Composer: agent-preset (mode) control\n\n   The shipped UI offers the agent preset only on the New Session screen, which\n   the cube never shows (\"new session\" opens the conversation directly). This\n   entry sits in the composer tool row immediately to the right of the\n   permission control. A Session keeps its preset once its first turn has run,\n   so the trigger is disabled after that and its tooltip says why.\n   -------------------------------------------------------------------------- */\n\n.cube-ui .cube-mode {\n  position: relative;\n  display: inline-flex;\n  min-width: 0;\n}\n\n.cube-ui .cube-mode-trigger {\n  display: inline-flex;\n  align-items: center;\n  gap: 5px;\n  max-width: 198px;\n  height: 28px;\n  padding: 0 6px;\n  border: none;\n  border-radius: var(--cube-radius-sm);\n  background: transparent;\n  color: var(--cube-text-dim);\n  font: inherit;\n  font-size: var(--cube-font-body);\n  line-height: 20px;\n  white-space: nowrap;\n  cursor: pointer;\n}\n\n.cube-ui .cube-mode-trigger:hover:not(:disabled),\n.cube-ui .cube-mode.open .cube-mode-trigger {\n  background: var(--cube-hover);\n  color: var(--cube-text);\n}\n\n.cube-ui .cube-mode-trigger:disabled {\n  color: var(--cube-text-faint);\n}\n\n.cube-ui .cube-mode-trigger .ico svg,\n.cube-ui .cube-mode-caret svg,\n.cube-ui .cube-mode-check svg {\n  width: 14px;\n  height: 14px;\n}\n\n.cube-ui .cube-mode-caret { color: var(--cube-text-dim); }\n\n.cube-ui .cube-mode-text {\n  min-width: 0;\n  overflow: hidden;\n  text-overflow: ellipsis;\n}\n\n/* The menu opens upward inside the face: the composer sits at its bottom\n   edge. The client clamps width/left/max-height to the face. */\n.cube-ui .cube-mode-menu {\n  position: absolute;\n  bottom: calc(100% + 6px);\n  left: 0;\n  z-index: 12;\n  width: 252px;\n  max-height: 232px;\n  overflow: auto;\n  padding: 6px;\n  border: 1px solid var(--cube-border-strong);\n  border-radius: var(--cube-radius-md);\n  background: var(--cube-surface-raised);\n  box-shadow: var(--cube-shadow);\n  scrollbar-width: thin;\n  scrollbar-color: var(--cube-scroll-thumb) transparent;\n}\n\n.cube-ui .cube-mode-item {\n  display: block;\n  width: 100%;\n  padding: 7px 9px;\n  border: 1px solid transparent;\n  border-radius: var(--cube-radius-sm);\n  background: transparent;\n  color: var(--cube-text);\n  font: inherit;\n  font-size: var(--cube-font-body);\n  line-height: 18px;\n  text-align: left;\n  cursor: pointer;\n}\n\n.cube-ui .cube-mode-item:hover:not(:disabled),\n.cube-ui .cube-mode-item:focus-visible {\n  background: var(--cube-hover-active);\n}\n\n.cube-ui .cube-mode-item.current {\n  background: var(--cube-accent-soft);\n  border-color: var(--cube-border-accent);\n}\n\n.cube-ui .cube-mode-item:disabled { opacity: 0.55; }\n\n.cube-ui .cube-mode-item-name {\n  display: flex;\n  align-items: center;\n  gap: 6px;\n  font-weight: 500;\n}\n\n.cube-ui .cube-mode-check { margin-left: auto; color: var(--cube-accent); }\n\n.cube-ui .cube-mode-item-desc {\n  display: block;\n  margin-top: 2px;\n  color: var(--cube-text-meta);\n  font-size: var(--cube-font-meta);\n  line-height: 16px;\n  white-space: normal;\n}\n\n.cube-ui .cube-mode-error {\n  margin-top: var(--cube-space-1);\n  padding: var(--cube-space-1) 7px;\n  color: var(--dsw-alias-state-error-primary);\n  font-size: var(--cube-font-meta);\n  line-height: 16px;\n}\n\n/* --------------------------------------------------------------------------\n   17. Scrollbars (theme-derived, thin)\n   -------------------------------------------------------------------------- */\n\n.cube-ui .sessions,\n.cube-ui .conv-body,\n.cube-ui .session-menu,\n.cube-ui-overlay .dock-panel,\n.cube-ui-overlay .modal {\n  scrollbar-width: thin;\n  scrollbar-color: var(--cube-scroll-thumb) transparent;\n}\n\n.cube-ui .sessions::-webkit-scrollbar,\n.cube-ui .conv-body::-webkit-scrollbar,\n.cube-ui .session-menu::-webkit-scrollbar,\n.cube-ui-overlay .dock-panel::-webkit-scrollbar,\n.cube-ui-overlay .modal::-webkit-scrollbar {\n  width: 8px;\n  height: 8px;\n}\n\n.cube-ui .sessions::-webkit-scrollbar-track,\n.cube-ui .conv-body::-webkit-scrollbar-track,\n.cube-ui .session-menu::-webkit-scrollbar-track,\n.cube-ui-overlay .dock-panel::-webkit-scrollbar-track,\n.cube-ui-overlay .modal::-webkit-scrollbar-track {\n  background: transparent;\n}\n\n.cube-ui .sessions::-webkit-scrollbar-thumb,\n.cube-ui .conv-body::-webkit-scrollbar-thumb,\n.cube-ui .session-menu::-webkit-scrollbar-thumb,\n.cube-ui-overlay .dock-panel::-webkit-scrollbar-thumb,\n.cube-ui-overlay .modal::-webkit-scrollbar-thumb {\n  background: var(--cube-scroll-thumb);\n  border-radius: var(--cube-radius-pill);\n}\n\n.cube-ui .sessions::-webkit-scrollbar-thumb:hover,\n.cube-ui .conv-body::-webkit-scrollbar-thumb:hover,\n.cube-ui .session-menu::-webkit-scrollbar-thumb:hover,\n.cube-ui-overlay .dock-panel::-webkit-scrollbar-thumb:hover,\n.cube-ui-overlay .modal::-webkit-scrollbar-thumb:hover {\n  background: var(--cube-scroll-thumb-hover);\n}\n\n/* --------------------------------------------------------------------------\n   18. Keyframes (prefixed: @keyframes are global by spec)\n   -------------------------------------------------------------------------- */\n\n@keyframes cube-pulse {\n  0%, 100% { opacity: 1; }\n  50% { opacity: 0.45; }\n}\n\n@keyframes cube-dock-in {\n  from { opacity: 0; transform: translateY(6px); }\n  to { opacity: 1; transform: none; }\n}\n\n@keyframes cube-modal-in {\n  from { opacity: 0; transform: scale(0.98) translateY(8px); }\n  to { opacity: 1; transform: none; }\n}\n\n@keyframes cube-coach-in {\n  from { opacity: 0; transform: translate(-50%, -6px); }\n  to { opacity: 1; transform: translate(-50%, 0); }\n}\n\n/* --------------------------------------------------------------------------\n   19. Narrow and short frames\n   -------------------------------------------------------------------------- */\n\n@container cube (max-width: 760px) {\n  .cube-ui-overlay .diamond {\n    --cube-diamond-size: 100px;\n  }\n\n  .cube-ui-overlay .dock-panel {\n    width: min(268px, 84cqw);\n  }\n\n  .cube-ui .stage-title {\n    max-width: 40cqw;\n  }\n}\n\n/* The sidebar becomes a drawer: no rail to clear on the left. */\n@media (max-width: 767px) {\n  .cube-ui-overlay .dock {\n    left: 16px;\n  }\n}\n\n/* Phone width: the dock collapses to its icon and the size control moves\n   into \"More\", so the bottom corners never collide. */\n@media (max-width: 640px) {\n  .cube-ui-overlay .dock-label,\n  .cube-ui-overlay .dock-toggle .dock-caret {\n    display: none;\n  }\n\n  .cube-ui-overlay .dock-toggle {\n    padding: var(--cube-space-2);\n  }\n\n  .cube-ui-overlay .size-pill {\n    display: none;\n  }\n\n  .cube-ui .hud-hint {\n    display: none;\n  }\n}\n\n@media (max-height: 520px) {\n  .cube-ui .hud-hint {\n    display: none;\n  }\n}\n\n/* --------------------------------------------------------------------------\n   20. User preferences: motion, contrast, forced colors\n   -------------------------------------------------------------------------- */\n\n@media (prefers-reduced-motion: reduce) {\n  .cube-ui *,\n  .cube-ui *::before,\n  .cube-ui *::after,\n  .cube-ui-overlay *,\n  .cube-ui-overlay *::before,\n  .cube-ui-overlay *::after {\n    transition-duration: 0.01ms !important;\n    animation-duration: 0.01ms !important;\n    animation-iteration-count: 1 !important;\n    scroll-behavior: auto !important;\n  }\n}\n\n@media (prefers-contrast: more) {\n  .cube-ui,\n  .cube-ui-overlay {\n    --cube-text-meta: var(--dsw-alias-label-primary);\n    --cube-text-dim: var(--dsw-alias-label-primary);\n    --cube-border-soft: var(--dsw-alias-border-l2);\n    --cube-border: var(--dsw-alias-border-l3);\n  }\n}\n\n@media (forced-colors: active) {\n  .cube-ui .face {\n    border-color: CanvasText;\n  }\n\n  .cube-ui .face.front {\n    border: 2px solid Highlight;\n  }\n\n  .cube-ui .face::after {\n    display: none;\n  }\n\n  .cube-ui .session[aria-current=\"true\"],\n  .cube-ui .session-menu [aria-current=\"true\"],\n  .cube-ui .cube-mode-item[aria-current=\"true\"],\n  .cube-ui .face.selected .face-head::before {\n    border-color: Highlight;\n    background: Highlight;\n    color: HighlightText;\n  }\n\n  .cube-ui .dot,\n  .cube-ui .ss-status.running::before {\n    forced-color-adjust: none;\n    background: CanvasText;\n  }\n}\n";
+    const LOCALE_DICTS = {"ja":{"nav.title":"クイック操作","nav.session":"新規セッション","nav.plugins":"プラグイン","nav.schedules":"自動化タスク","nav.more":"その他","hint.browse":"ドラッグまたは矢印キーで回転 ・ 面のセッションをクリックで会話 ・ 右上のひし形から操作","workspace.none":"ワークスペースなし","workspace.emptySlot":"空きスロット","workspace.emptyPath":"この面に割り当てられたワークスペースはありません","workspace.label":"ワークスペース","sessions.empty":"セッションなし","sessions.new":"新規セッション","sessions.running":"実行中","sessions.idle":"待機中","conv.title":"会話","conv.close":"立方体に戻る (Esc)","conv.empty":"このワークスペースにはまだセッションがありません。","page.prev":"前のワークスペースセット","page.next":"次のワークスペースセット","page.label":"{from}–{to} / {total}","dock.title":"設定・プラグイン","dock.settingsSection":"設定","dock.settings":"設定を開く","dock.settingsMeta":"標準の設定モーダル","dock.panels":"プラグイン UI","dock.plugins":"プラグイン管理","dock.pluginsMeta":"標準パネル","dock.schedules":"自動化タスク","dock.schedulesMeta":"標準パネル","dock.note":"プラグイン固有の設定 UI は、それぞれの標準画面から開きます。","more.title":"その他","more.close":"閉じる","more.sub":"残りのユーティリティへの入口です。","more.settings":"設定","more.settingsMeta":"DSH 標準設定","more.plugins":"プラグイン管理","more.pluginsMeta":"DSH 標準パネル","more.schedules":"自動化タスク","more.schedulesMeta":"DSH 標準パネル","more.open":"開く","size.title":"立方体のサイズ","size.smaller":"立方体を小さく","size.larger":"立方体を大きく","hint.insideShort":"ドラッグで回転 ・ Esc で戻る","more.diagnostics":"診断情報","more.diagnosticsMeta":"スクロール不調時の確認用","mode.label":"エージェントモード","mode.hint":"エージェントのツール構成を選択","mode.locked":"会話が始まるとモードを変更できません","mode.error":"モードを切り替えられませんでした","mode.standard":"標準モード","mode.creator":"クリエイターモード","mode.ptc":"PTC モード","mode.minimal":"最小モード","hint.dismiss":"ヒントを閉じる","a11y.cube":"ワークスペースの立方体","a11y.cubeRole":"立方体","a11y.face":"面 {index}/{total}: {name}","a11y.cubeKeys":"左右の矢印キーで隣の面、上下の矢印キーで上下の面へ回転します。Enter で前面のワークスペースを開き、Home で最初の面に戻ります。","a11y.running":"{name} を実行中","a11y.idle":"{name} が待機中になりました","face.nav":"面の切り替え","face.left":"左の面へ","face.right":"右の面へ","face.up":"上の面へ","face.down":"下の面へ","face.label":"面 {index}/{total}","count.sessions":"{count} セッション","count.sessionOne":"{count} セッション","count.workspaces":"{count} ワークスペース","count.workspaceOne":"{count} ワークスペース","workspace.loading":"読み込み中…","workspace.error":"ワークスペースを読み込めませんでした。","workspace.retry":"再読み込み","workspace.emptyHint":"ワークスペースは標準のサイドバーから追加できます","workspace.addCta":"サイドバーを開く","sessions.list":"セッション","sessions.menu":"セッションの切り替え","page.title":"ワークスペースのページ","tour.label":"操作ガイド","tour.step":"{index} / {total}","tour.next":"次へ","tour.done":"はじめる","tour.skip":"スキップ","tour.rotateTitle":"立方体を回す","tour.rotateBody":"6 つの面がそれぞれワークスペースです。ドラッグ、下の ‹ › ボタン、または立方体にフォーカスして矢印キーで回転します。","tour.openTitle":"面から会話に入る","tour.openBody":"面のセッションをクリックすると、その面の上で会話が開きます。「+ 新規セッション」で新しい会話を始められます。","tour.backTitle":"立方体に戻る","tour.backBody":"Esc キー、または会話右上の × で立方体ビューに戻ります。このガイドは「その他」からいつでも再表示できます。","more.openNamed":"{name}を開く","more.show":"表示","more.size":"立方体のサイズ","more.guide":"操作ガイド","more.guideMeta":"最初の案内と操作ヒントをもう一度表示","more.version":"Cube UI v{version}","size.reset":"サイズを 100% に戻す","dock.settingsDesktop":"デスクトップ版ではサイドバーの設定から開きます","diag.none":"なし","error.openSession":"セッションを開けませんでした","error.startSession":"セッションを作成できませんでした","error.selectPanel":"パネルを開けませんでした","error.openSettings":"設定を開けませんでした","error.sidebar":"サイドバーを開けませんでした"},"en":{"nav.title":"Quick actions","nav.session":"New session","nav.plugins":"Plugins","nav.schedules":"Scheduled tasks","nav.more":"More","hint.browse":"Drag or use the arrow keys to rotate · Click a session on a face to open it · More actions in the diamond, top right","workspace.none":"No workspaces","workspace.emptySlot":"Empty slot","workspace.emptyPath":"No workspace is assigned to this face","workspace.label":"Workspace","sessions.empty":"No sessions","sessions.new":"New session","sessions.running":"Running","sessions.idle":"Idle","conv.title":"Conversation","conv.close":"Back to the cube (Esc)","conv.empty":"This workspace has no sessions yet.","page.prev":"Previous workspace set","page.next":"Next workspace set","page.label":"{from}–{to} / {total}","dock.title":"Settings & plugins","dock.settingsSection":"Settings","dock.settings":"Open settings","dock.settingsMeta":"Standard settings dialog","dock.panels":"Plugin surfaces","dock.plugins":"Plugin manager","dock.pluginsMeta":"Standard panel","dock.schedules":"Scheduled tasks","dock.schedulesMeta":"Standard panel","dock.note":"Plugin-specific settings open from their own standard screens.","more.title":"More","more.close":"Close","more.sub":"Entrances to the remaining utilities.","more.settings":"Settings","more.settingsMeta":"Standard DSH settings","more.plugins":"Plugin manager","more.pluginsMeta":"Standard DSH panel","more.schedules":"Scheduled tasks","more.schedulesMeta":"Standard DSH panel","more.open":"Open","size.title":"Cube size","size.smaller":"Shrink the cube","size.larger":"Enlarge the cube","hint.insideShort":"Drag to rotate ・ Esc to go back","more.diagnostics":"Diagnostics","more.diagnosticsMeta":"For scroll troubleshooting","mode.label":"Agent mode","mode.hint":"Choose the agent's tools","mode.locked":"The mode cannot change once the conversation starts","mode.error":"Could not change the mode","mode.standard":"Standard mode","mode.creator":"Creator mode","mode.ptc":"PTC mode","mode.minimal":"Minimal mode","hint.dismiss":"Dismiss hint","a11y.cube":"Workspace cube","a11y.cubeRole":"cube","a11y.face":"Face {index} of {total}: {name}","a11y.cubeKeys":"Left and Right arrow keys turn to the neighbouring face, Up and Down tip to the top and bottom faces. Enter opens the front Workspace, Home returns to the first face.","a11y.running":"{name} is running","a11y.idle":"{name} is now idle","face.nav":"Switch face","face.left":"Face to the left","face.right":"Face to the right","face.up":"Face above","face.down":"Face below","face.label":"Face {index}/{total}","count.sessions":"{count} sessions","count.sessionOne":"{count} session","count.workspaces":"{count} workspaces","count.workspaceOne":"{count} workspace","workspace.loading":"Loading…","workspace.error":"Workspaces could not be loaded.","workspace.retry":"Reload","workspace.emptyHint":"Add workspaces from the standard sidebar","workspace.addCta":"Open sidebar","sessions.list":"Sessions","sessions.menu":"Switch session","page.title":"Workspace pages","tour.label":"Guide","tour.step":"{index} / {total}","tour.next":"Next","tour.done":"Get started","tour.skip":"Skip","tour.rotateTitle":"Turn the cube","tour.rotateBody":"Each of the six faces is a workspace. Drag the cube, use the ‹ › buttons below, or focus the cube and press the arrow keys.","tour.openTitle":"Open a conversation from a face","tour.openBody":"Click a session on a face to open its conversation right on that face. \"+ New session\" starts a new one.","tour.backTitle":"Back to the cube","tour.backBody":"Press Esc or the × at the top right of the conversation to return to the cube. Reopen this guide any time from \"More\".","more.openNamed":"Open {name}","more.show":"Show","more.size":"Cube size","more.guide":"Guide","more.guideMeta":"Show the first-run guide and hints again","more.version":"Cube UI v{version}","size.reset":"Reset size to 100%","dock.settingsDesktop":"On desktop, open it from the sidebar","diag.none":"none","error.openSession":"Could not open the session","error.startSession":"Could not create a session","error.selectPanel":"Could not open the panel","error.openSettings":"Could not open settings","error.sidebar":"Could not open the sidebar"},"zh":{"nav.title":"快捷操作","nav.session":"新建会话","nav.plugins":"插件","nav.schedules":"计划任务","nav.more":"更多","hint.browse":"拖动或使用方向键旋转 · 点击面上的会话进入对话 · 右上角菱形中有更多操作","workspace.none":"没有工作区","workspace.emptySlot":"空槽位","workspace.emptyPath":"此面尚未分配工作区","workspace.label":"工作区","sessions.empty":"没有会话","sessions.new":"新建会话","sessions.running":"运行中","sessions.idle":"空闲","conv.title":"会话","conv.close":"返回立方体 (Esc)","conv.empty":"此工作区还没有会话。","page.prev":"上一组工作区","page.next":"下一组工作区","page.label":"{from}–{to} / {total}","dock.title":"设置与插件","dock.settingsSection":"设置","dock.settings":"打开设置","dock.settingsMeta":"标准设置对话框","dock.panels":"插件界面","dock.plugins":"插件管理","dock.pluginsMeta":"标准面板","dock.schedules":"计划任务","dock.schedulesMeta":"标准面板","dock.note":"插件专属设置请从其标准界面打开。","more.title":"更多","more.close":"关闭","more.sub":"通往其余工具的入口。","more.settings":"设置","more.settingsMeta":"DSH 标准设置","more.plugins":"插件管理","more.pluginsMeta":"DSH 标准面板","more.schedules":"计划任务","more.schedulesMeta":"DSH 标准面板","more.open":"打开","size.title":"立方体大小","size.smaller":"缩小立方体","size.larger":"放大立方体","hint.insideShort":"拖动旋转 ・ Esc 返回","more.diagnostics":"诊断信息","more.diagnosticsMeta":"用于排查滚动问题","mode.label":"Agent 模式","mode.hint":"选择 Agent 的工具配置","mode.locked":"会话开始后无法更改模式","mode.error":"无法切换模式","mode.standard":"标准模式","mode.creator":"创造模式","mode.ptc":"PTC 模式","mode.minimal":"极简模式","hint.dismiss":"关闭提示","a11y.cube":"工作区立方体","a11y.cubeRole":"立方体","a11y.face":"第 {index}/{total} 面：{name}","a11y.cubeKeys":"左右方向键转到相邻的面，上下方向键转到顶面和底面。Enter 打开正面的工作区，Home 回到第一个面。","a11y.running":"{name} 正在运行","a11y.idle":"{name} 已空闲","face.nav":"切换面","face.left":"转到左侧的面","face.right":"转到右侧的面","face.up":"转到上方的面","face.down":"转到下方的面","face.label":"面 {index}/{total}","count.sessions":"{count} 个会话","count.sessionOne":"{count} 个会话","count.workspaces":"{count} 个工作区","count.workspaceOne":"{count} 个工作区","workspace.loading":"加载中…","workspace.error":"无法加载工作区。","workspace.retry":"重新加载","workspace.emptyHint":"可在标准侧边栏中添加工作区","workspace.addCta":"打开侧边栏","sessions.list":"会话","sessions.menu":"切换会话","page.title":"工作区页","tour.label":"操作指南","tour.step":"{index} / {total}","tour.next":"下一步","tour.done":"开始使用","tour.skip":"跳过","tour.rotateTitle":"旋转立方体","tour.rotateBody":"六个面各是一个工作区。拖动立方体、使用下方的 ‹ › 按钮，或聚焦立方体后按方向键即可旋转。","tour.openTitle":"从面进入对话","tour.openBody":"点击面上的会话，即可在该面上打开对话。点击“+ 新建会话”开始新的对话。","tour.backTitle":"回到立方体","tour.backBody":"按 Esc 或对话右上角的 × 返回立方体视图。随时可从“更多”中再次打开本指南。","more.openNamed":"打开{name}","more.show":"显示","more.size":"立方体大小","more.guide":"操作指南","more.guideMeta":"再次显示首次使用指南和提示","more.version":"Cube UI v{version}","size.reset":"将大小恢复为 100%","dock.settingsDesktop":"桌面版请从侧边栏打开","diag.none":"无","error.openSession":"无法打开会话","error.startSession":"无法创建会话","error.selectPanel":"无法打开面板","error.openSettings":"无法打开设置","error.sidebar":"无法打开侧边栏"}};
 
-    /** The cube rests face-on: the front face is parallel to the screen. */
+    /** Cube attitude at rest. Browse mode adds a slight idle tilt in CSS so
+     *  the cube reads as a cube; inside mode rests face-on. */
     const INITIAL_RX = 0;
     const INITIAL_RY = 0;
     /** Snap animation length; must stay in sync with `.cube.snap` in styles. */
@@ -53,29 +54,64 @@ window.__ModuleLoader__.load({
     const PITCH_LIMIT = 100;
     /** Past this pitch the cube settles on its top or bottom face. */
     const PITCH_COMMIT = 55;
-    /** Repeat of a face rotation while we are still settling. */
+    /** Faces per page: one Workspace per face. */
     const FACES = 6;
+    /** A press must travel this far (px) before it turns the cube. */
+    const DRAG_SLOP = 5;
 
     /** User-tunable cube scale, persisted per browser. */
     const SCALE_KEY = 'dsh.cube-ui.scale';
     const SCALE_MIN = 0.6;
     const SCALE_MAX = 1.6;
+    /** First-run guide, dismissed hint, one-time sidebar default. */
+    const ONBOARD_KEY = 'dsh.cube-ui.onboarded';
+    const HINT_KEY = 'dsh.cube-ui.hintDismissed';
+    const SIDEBAR_KEY = 'dsh.cube-ui.sidebarDefaulted';
 
-    function readScale() {
+    // Storage may be unavailable (private windows, blocked site data); every
+    // caller treats a missing value as "first visit" and keeps working.
+    function readStored(key) {
       try {
-        const value = Number(window.localStorage.getItem(SCALE_KEY));
-        return Number.isFinite(value) && value > 0 ? clamp(value, SCALE_MIN, SCALE_MAX) : 1;
+        return window.localStorage.getItem(key);
       } catch (error) {
-        return 1;
+        return null;
       }
     }
 
-    function writeScale(scale) {
+    function writeStored(key, value) {
       try {
-        window.localStorage.setItem(SCALE_KEY, String(scale));
+        if (value === null) window.localStorage.removeItem(key);
+        else window.localStorage.setItem(key, value);
       } catch (error) {
-        // Storage may be unavailable in private windows; the cube still resizes.
+        // Not persisted; the in-memory state still applies for this load.
       }
+    }
+
+    function readScale() {
+      const value = Number(readStored(SCALE_KEY));
+      return Number.isFinite(value) && value > 0 ? clamp(value, SCALE_MIN, SCALE_MAX) : 1;
+    }
+
+    function writeScale(scale) {
+      writeStored(SCALE_KEY, String(scale));
+    }
+
+    function reducedMotion() {
+      try {
+        return window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches === true;
+      } catch (error) {
+        return false;
+      }
+    }
+
+    /** CSS drops the snap transition under reduced motion; follow it. */
+    function snapDuration() {
+      return reducedMotion() ? 40 : SNAP_MS;
+    }
+
+    /** "{count} sessions" with a singular form where the language has one. */
+    function countLabel(t, count, oneKey, manyKey) {
+      return t(count === 1 ? oneKey : manyKey, { count });
     }
 
     /**
@@ -300,6 +336,90 @@ window.__ModuleLoader__.load({
     }
 
     // ---------------------------------------------------------------------
+    // Focus and menu helpers
+    // ---------------------------------------------------------------------
+
+    /** Visually hidden but announced (status region, key help). */
+    const SR_ONLY = 'cube-sr-only';
+
+    /**
+     * Focus the first match of `selectors` under `getRoot()`, retrying for a
+     * few frames: embedded conversation content and freshly opened menus
+     * mount after the state change that asked for the focus.
+     */
+    function focusWhenReady(getRoot, selectors, frames) {
+      let left = frames ?? 20;
+      const attempt = () => {
+        const root = getRoot();
+        if (root !== null && root !== undefined) {
+          for (const selector of selectors) {
+            const node = root.querySelector(selector);
+            if (node !== null && typeof node.focus === 'function' && node.getClientRects().length > 0) {
+              node.focus({ preventScroll: true });
+              return;
+            }
+          }
+        }
+        left -= 1;
+        if (left > 0) window.requestAnimationFrame(attempt);
+      };
+      window.requestAnimationFrame(attempt);
+    }
+
+    /** Arrow/Home/End movement between the buttons of a small menu. */
+    function onMenuKeyDown(event) {
+      const key = event.key;
+      if (key !== 'ArrowDown' && key !== 'ArrowUp' && key !== 'Home' && key !== 'End') return;
+      const nodes = [...event.currentTarget.querySelectorAll('button:not(:disabled)')];
+      if (nodes.length === 0) return;
+      event.preventDefault();
+      const index = nodes.indexOf(document.activeElement);
+      let next;
+      if (key === 'Home') next = 0;
+      else if (key === 'End') next = nodes.length - 1;
+      else if (key === 'ArrowDown') next = index < 0 ? 0 : (index + 1) % nodes.length;
+      else next = index < 0 ? nodes.length - 1 : (index - 1 + nodes.length) % nodes.length;
+      nodes[next].focus();
+    }
+
+    /** Keep Tab inside a dialog. */
+    function trapTab(event) {
+      if (event.key !== 'Tab') return;
+      const nodes = [
+        ...event.currentTarget.querySelectorAll(
+          'button:not(:disabled), [href], input:not(:disabled), select, textarea, [tabindex]:not([tabindex="-1"])',
+        ),
+      ];
+      if (nodes.length === 0) return;
+      const first = nodes[0];
+      const last = nodes[nodes.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    }
+
+    /**
+     * Screen geometry of `element` against the cube face that clips it. The
+     * face is perspective-projected, so screen rects are scaled against its
+     * CSS width; callers convert back with `scale`.
+     */
+    function measureInFace(element) {
+      if (element === null || element === undefined) return null;
+      const face = element.closest('.face');
+      if (face === null || face.offsetWidth === 0) return null;
+      const faceRect = face.getBoundingClientRect();
+      return { scale: faceRect.width / face.offsetWidth, faceRect, rect: element.getBoundingClientRect() };
+    }
+
+    function isRunning(row, sessionStatus) {
+      return row?.running === true || sessionStatus?.get?.(row?.id)?.running === true;
+    }
+
+    // ---------------------------------------------------------------------
     // Stage: cube of Workspaces plus the embedded conversation
     // ---------------------------------------------------------------------
 
@@ -307,7 +427,6 @@ window.__ModuleLoader__.load({
       const {
         sessionId,
         useSession,
-        useConversation,
         useSessions,
         useWorkspaces,
         useSessionStatus,
@@ -321,27 +440,47 @@ window.__ModuleLoader__.load({
       const workspaceState = useWorkspaces((state) => state);
       const sessionState = useSessions((state) => state);
       const sessionStatus = useSessionStatus((state) => state);
-      const sessionSnapshot = useSession((state) => state);
+      // Subscribed so the stage follows the bound Session (title, running).
+      useSession((state) => state);
       const ui = useChannel(channel);
 
       const items = workspaceState?.items ?? [];
+      // Not yet fetched and genuinely empty must not look the same.
+      const loading =
+        items.length === 0 &&
+        (workspaceState === undefined ||
+          workspaceState === null ||
+          workspaceState.phase === 'pending' ||
+          workspaceState.state === 'loading');
+      const failed = items.length === 0 && !loading && workspaceState?.state === 'error';
       const pageCount = Math.max(1, Math.ceil(items.length / FACES));
       const page = clamp(ui.page, 0, pageCount - 1);
+      const mode = ui.mode;
+      const inside = mode === 'inside';
       const sessionRow = sessionId === undefined ? undefined : sessionState?.byId?.[sessionId];
       const sessionWorkspace =
         sessionId === undefined ? undefined : items.find((item) => (item.sessionIds ?? []).includes(sessionId));
-      const activeWorkspace =
-        sessionWorkspace ??
-        (ui.workspaceId === undefined ? undefined : items.find((item) => item.workspaceId === ui.workspaceId));
+      const channelWorkspace =
+        ui.workspaceId === undefined ? undefined : items.find((item) => item.workspaceId === ui.workspaceId);
+      // Inside the cube the face decides the Workspace: turning onto a
+      // Workspace without Sessions must not keep showing the previous one.
+      const activeWorkspace = inside
+        ? channelWorkspace ?? sessionWorkspace
+        : sessionWorkspace ?? channelWorkspace;
+      // The host Session belongs on this face only when it is this face's
+      // Workspace. A Session not listed yet (a fresh blank one) is shown.
+      const showConversation =
+        sessionId !== undefined &&
+        (sessionWorkspace === undefined ||
+          activeWorkspace === undefined ||
+          sessionWorkspace.workspaceId === activeWorkspace.workspaceId);
       // Rows are derived from the Workspace list, not from conversation
       // updates: memoise so a streaming Session never re-filters them.
       const activeSessions = useMemo(
         () => sessionsOf(activeWorkspace, sessionState),
         [activeWorkspace, sessionState],
       );
-      const mode = ui.mode;
-      const inside = mode === 'inside';
-      const running = sessionRow?.running === true || sessionStatus?.get?.(sessionId)?.running === true;
+      const running = showConversation && isRunning(sessionRow ?? { id: sessionId }, sessionStatus);
 
       const pageWorkspaces = useMemo(() => {
         const slice = [];
@@ -371,6 +510,7 @@ window.__ModuleLoader__.load({
       const hostRef = useRef(null);
       const rootRef = useRef(null);
       const stageRef = useRef(null);
+      const shellRef = useRef(null);
       const cubeRef = useRef(null);
       const rotation = useRef({ rx: INITIAL_RX, ry: INITIAL_RY });
       const snapTimer = useRef(0);
@@ -380,11 +520,15 @@ window.__ModuleLoader__.load({
        *  transform once per frame keeps the layout/paint work bounded. */
       const dragFrame = useRef(0);
       const dragSample = useRef(null);
+      /** Where focus should land once the cube settles ('conv' | 'cube'). */
+      const pendingFocus = useRef(null);
       const [front, setFront] = useState(frontSlotOf(INITIAL_RX, INITIAL_RY));
       /** True while the cube is being dragged or snapping: faces drop to
        *  identity detail so a workspace stays recognizable without painting
        *  the session lists on every rotating face. */
       const [rotating, setRotating] = useState(false);
+      const [announcement, setAnnouncement] = useState('');
+      const [menuBox, setMenuBox] = useState(null);
 
       const applyRotation = useCallback(() => {
         const cube = cubeRef.current;
@@ -402,8 +546,8 @@ window.__ModuleLoader__.load({
         };
       }, [applyRotation]);
 
-      // The CSS default is a 520px cube, which overflows short panels. Size the
-      // cube from the panel box itself so a collapsed/expanded sidebar or a
+      // The cube is sized from the panel box itself (this is the only place
+      // that decides --cube-size), so a collapsed/expanded sidebar or a
       // laptop-height window both keep the whole cube on screen.
       useEffect(() => {
         const host = hostRef.current;
@@ -413,11 +557,17 @@ window.__ModuleLoader__.load({
           const width = host.clientWidth;
           const height = host.clientHeight;
           if (width === 0 || height === 0) return;
-          const base =
-            latest.current.mode === 'inside'
-              ? Math.min(600, width * 0.56, height * 0.8)
-              : Math.min(520, width * 0.46, height * 0.55);
-          const size = Math.round(clamp(base * ui.scale, 220, Math.min(width * 0.88, height * 0.86)));
+          const insideNow = latest.current.mode === 'inside';
+          const base = insideNow
+            ? Math.min(600, width * 0.56, height * 0.8)
+            : Math.min(520, width * 0.46, height * 0.55);
+          // Browse rests tilted under a shorter perspective, which magnifies
+          // the near edge; leave it more room than the face-on inside view.
+          const upper = insideNow
+            ? Math.min(width * 0.88, height * 0.86)
+            : Math.min(width * 0.8, height * 0.72);
+          const lower = Math.min(220, width * 0.8, height * 0.8);
+          const size = Math.round(clamp(base * ui.scale, Math.min(lower, upper), upper));
           root.style.setProperty('--cube-size', size + 'px');
         };
         fit();
@@ -430,6 +580,23 @@ window.__ModuleLoader__.load({
         return () => observer.disconnect();
       }, [mode, ui.scale]);
 
+      /**
+       * Inside the cube, the Workspace on the front face becomes the active
+       * one: open its remembered (or newest) Session, or show its empty state.
+       */
+      const settleInside = useCallback((slot, pageOverride) => {
+        const state = latest.current;
+        if (state.mode !== 'inside') return;
+        const workspace = state.items[(pageOverride ?? state.page) * FACES + slot];
+        if (workspace === undefined) return;
+        state.channel.update({ workspaceId: workspace.workspaceId });
+        const ids = workspace.sessionIds ?? [];
+        if (state.sessionId !== undefined && ids.includes(state.sessionId)) return;
+        const remembered = state.channel.getSnapshot().lastSession[workspace.workspaceId];
+        const target = remembered !== undefined && ids.includes(remembered) ? remembered : ids[0];
+        if (target !== undefined) state.actions.openSession(target);
+      }, []);
+
       const snap = useCallback(
         (targetRx, targetRy, options) => {
           const cube = cubeRef.current;
@@ -441,29 +608,17 @@ window.__ModuleLoader__.load({
           }
           applyRotation();
           window.clearTimeout(snapTimer.current);
+          // Reduced motion: CSS drops the transition, so settle right away
+          // instead of leaving the state 460ms behind the picture.
           snapTimer.current = window.setTimeout(() => {
             if (cubeRef.current !== null) cubeRef.current.classList.remove('snap');
             const slot = frontSlotOf(rotation.current.rx, rotation.current.ry);
             setFront(slot);
             setRotating(false);
-            if (silent) return;
-            const state = latest.current;
-            if (state.mode !== 'inside') return;
-            const workspace = state.items[state.page * FACES + slot];
-            if (workspace === undefined) return;
-            const insideCurrent =
-              state.sessionId !== undefined && (workspace.sessionIds ?? []).includes(state.sessionId);
-            if (insideCurrent) return;
-            const last = state.channel.getSnapshot().lastSession;
-            const remembered = last[workspace.workspaceId];
-            const rememberedOk =
-              remembered !== undefined && (workspace.sessionIds ?? []).includes(remembered);
-            const target = rememberedOk ? remembered : (workspace.sessionIds ?? [])[0];
-            state.channel.update({ workspaceId: workspace.workspaceId });
-            if (target !== undefined) state.actions.openSession(target);
-          }, SNAP_MS);
+            if (!silent) settleInside(slot);
+          }, snapDuration());
         },
-        [applyRotation],
+        [applyRotation, settleInside],
       );
 
       const rotateToFace = useCallback(
@@ -482,7 +637,48 @@ window.__ModuleLoader__.load({
         [snap],
       );
 
+      /**
+       * One face step: dx turns to the face on the right (+1) or left (-1),
+       * dy tips the cube to show the face above (-1) or below (+1).
+       */
+      const stepFace = useCallback(
+        (dx, dy) => {
+          const { rx, ry } = snapAttitude(rotation.current.rx, rotation.current.ry);
+          let nextRx = rx;
+          let nextRy = ry;
+          if (dx !== 0) {
+            nextRx = 0;
+            nextRy = ry - 90 * dx;
+          }
+          if (dy !== 0) nextRx = clamp(rx + 90 * dy, -90, 90);
+          if (nextRx === rx && nextRy === ry) return;
+          setRotating(true);
+          snap(nextRx, nextRy);
+        },
+        [snap],
+      );
+
       // -- Drag -----------------------------------------------------------
+      //
+      // A press only arms a drag. The cube starts turning once the pointer
+      // has travelled DRAG_SLOP pixels, so a plain click on a face (or the
+      // frame around the conversation) never snaps the cube or blanks the
+      // conversation for the length of a snap.
+
+      const beginRotation = useCallback((state) => {
+        state.moved = true;
+        window.clearTimeout(snapTimer.current);
+        if (cubeRef.current !== null) cubeRef.current.classList.remove('snap');
+        channel.update({ menuOpen: false });
+        setRotating(true);
+        if (stageRef.current !== null) stageRef.current.classList.add('grabbing');
+        try {
+          stageRef.current?.setPointerCapture(state.pointerId);
+        } catch (error) {
+          // Older engines refuse capture on non-primary pointers; dragging
+          // still works while the pointer stays over the stage.
+        }
+      }, [channel]);
 
       const onPointerDown = useCallback(
         (event) => {
@@ -496,27 +692,17 @@ window.__ModuleLoader__.load({
           // starts a rotation (not even from its header).
           if (target.closest('.cube') === null) return;
           if (target.closest('.face-conv') !== null) return;
-          window.clearTimeout(snapTimer.current);
           if (dragFrame.current !== 0) window.cancelAnimationFrame(dragFrame.current);
           dragFrame.current = 0;
           dragSample.current = null;
-          if (cubeRef.current !== null) cubeRef.current.classList.remove('snap');
-          channel.update({ menuOpen: false });
-          setRotating(true);
-          if (stageRef.current !== null) stageRef.current.classList.add('grabbing');
           drag.current = {
             pointerId: event.pointerId,
             originX: event.clientX,
             originY: event.clientY,
             rx: rotation.current.rx,
             ry: rotation.current.ry,
+            moved: false,
           };
-          try {
-            stageRef.current?.setPointerCapture(event.pointerId);
-          } catch (error) {
-            // Older engines refuse capture on non-primary pointers; dragging
-            // still works while the pointer stays over the stage.
-          }
         },
         [],
       );
@@ -529,7 +715,7 @@ window.__ModuleLoader__.load({
         const sample = dragSample.current;
         dragSample.current = null;
         const state = drag.current;
-        if (sample === null || state === null || state.pointerId !== sample.pointerId) return;
+        if (sample === null || state === null || !state.moved || state.pointerId !== sample.pointerId) return;
         const dx = sample.clientX - state.originX;
         const dy = sample.clientY - state.originY;
         rotation.current.ry = state.ry + dx * DRAG_YAW;
@@ -541,25 +727,36 @@ window.__ModuleLoader__.load({
         (event) => {
           const state = drag.current;
           if (state === null || state.pointerId !== event.pointerId) return;
+          if (!state.moved) {
+            const travel = Math.hypot(event.clientX - state.originX, event.clientY - state.originY);
+            if (travel < DRAG_SLOP) return;
+            beginRotation(state);
+          }
           dragSample.current = { pointerId: event.pointerId, clientX: event.clientX, clientY: event.clientY };
           if (dragFrame.current !== 0) return;
           dragFrame.current = window.requestAnimationFrame(flushDragSample);
         },
-        [flushDragSample],
+        [flushDragSample, beginRotation],
       );
 
       const onPointerUp = useCallback(
         (event) => {
           const state = drag.current;
           if (state === null || (event.pointerId !== undefined && state.pointerId !== event.pointerId)) return;
+          drag.current = null;
+          // Below the slop the press was a click: leave the cube alone.
+          if (!state.moved) return;
           // Consume the last sample before the snap attitude is read, so the
           // cube settles on the rotation the pointer actually reached.
           if (dragFrame.current !== 0) {
             window.cancelAnimationFrame(dragFrame.current);
             dragFrame.current = 0;
           }
-          if (dragSample.current !== null) flushDragSample();
-          drag.current = null;
+          if (dragSample.current !== null) {
+            drag.current = state;
+            flushDragSample();
+            drag.current = null;
+          }
           if (stageRef.current !== null) stageRef.current.classList.remove('grabbing');
           try {
             stageRef.current?.releasePointerCapture(state.pointerId);
@@ -574,12 +771,20 @@ window.__ModuleLoader__.load({
 
       // -- Synchronise the cube with the selected Session ------------------
 
-      // Selecting another Session (dropdown, sidebar, host navigation) updates
-      // the face content in place. The cube only turns when the user drags it
-      // or picks a Session on another face, never as a side effect of selection.
-
+      // Selecting a Session in another Workspace (sidebar, host navigation)
+      // turns that Workspace's face to the front, so the face, the header and
+      // the conversation always name the same Workspace. Switching Sessions
+      // within the front Workspace (the dropdown) never turns the cube.
       useEffect(() => {
-        if (sessionWorkspace !== undefined) channel.update({ workspaceId: sessionWorkspace.workspaceId });
+        if (sessionWorkspace === undefined) return;
+        channel.update({ workspaceId: sessionWorkspace.workspaceId });
+        if (drag.current !== null) return;
+        const abs = items.indexOf(sessionWorkspace);
+        if (abs < 0) return;
+        const targetPage = Math.floor(abs / FACES);
+        const slot = abs % FACES;
+        if (targetPage !== latest.current.page) channel.update({ page: targetPage });
+        if (frontSlotOf(rotation.current.rx, rotation.current.ry) !== slot) rotateToFace(slot, { silent: true });
       }, [sessionWorkspace?.workspaceId]);
 
       // -- Follow the selected Session into the cube -----------------------
@@ -598,6 +803,7 @@ window.__ModuleLoader__.load({
       const enterWorkspace = useCallback(
         (workspace, slot) => {
           if (workspace === undefined) return;
+          pendingFocus.current = 'conv';
           channel.update({ mode: 'inside', closed: false, workspaceId: workspace.workspaceId });
           rotateToFace(slot);
         },
@@ -608,6 +814,7 @@ window.__ModuleLoader__.load({
         (workspace, slot, targetSessionId) => {
           if (workspace === undefined) return;
           const last = channel.getSnapshot().lastSession;
+          pendingFocus.current = 'conv';
           channel.update({
             mode: 'inside',
             closed: false,
@@ -623,6 +830,7 @@ window.__ModuleLoader__.load({
       const newSession = useCallback(
         (workspace) => {
           const target = workspace ?? activeWorkspace;
+          pendingFocus.current = 'conv';
           if (target === undefined) {
             actions.startSession();
             return;
@@ -630,7 +838,7 @@ window.__ModuleLoader__.load({
           channel.update({ mode: 'inside', closed: false, workspaceId: target.workspaceId });
           actions.startSession(target.workspaceId);
           const abs = items.indexOf(target);
-          if (abs >= 0) rotateToFace(abs % FACES);
+          if (abs >= 0) rotateToFace(abs % FACES, { silent: true });
         },
         [actions, activeWorkspace, channel, items, rotateToFace],
       );
@@ -639,9 +847,11 @@ window.__ModuleLoader__.load({
         (nextId) => {
           const workspace = items.find((item) => (item.sessionIds ?? []).includes(nextId));
           const last = channel.getSnapshot().lastSession;
+          pendingFocus.current = 'conv';
           channel.update({
             closed: false,
             mode: 'inside',
+            menuOpen: false,
             ...(workspace === undefined
               ? {}
               : {
@@ -655,12 +865,129 @@ window.__ModuleLoader__.load({
       );
 
       const closeConversation = useCallback(() => {
+        pendingFocus.current = 'cube';
         channel.update({ mode: 'browse', closed: true, menuOpen: false });
       }, [channel]);
 
+      const goPage = useCallback(
+        (next) => {
+          const state = latest.current;
+          const target = clamp(next, 0, state.pageCount - 1);
+          if (target === state.page) return;
+          channel.update({ page: target, menuOpen: false });
+          settleInside(frontSlotOf(rotation.current.rx, rotation.current.ry), target);
+        },
+        [channel, settleInside],
+      );
+
+      // -- Focus follows the view ------------------------------------------
+      //
+      // Opening a conversation moves focus into it once the cube has settled
+      // (the face hides its content while turning, which would otherwise drop
+      // focus on <body>); leaving the conversation returns focus to the cube.
+
+      useEffect(() => {
+        if (rotating || pendingFocus.current === null) return;
+        const intent = pendingFocus.current;
+        if (intent === 'conv' && !inside) return;
+        pendingFocus.current = null;
+        if (intent === 'conv') {
+          focusWhenReady(() => rootRef.current, [
+            '.face-conv textarea',
+            '.face-conv [contenteditable="true"]',
+            '.face-conv .session-select',
+          ]);
+        } else {
+          focusWhenReady(() => rootRef.current, ['.cube-shell'], 4);
+        }
+      });
+
+      // -- Non-front faces leave the tab order ------------------------------
+      //
+      // Faces turned away from the viewer are hidden from assistive tech
+      // (aria-hidden on the face) and their controls are made inert, so Tab
+      // never lands on an invisible or mirrored control. Only the content
+      // layers go inert: the face itself still takes a drag.
+      useEffect(() => {
+        const cube = cubeRef.current;
+        if (cube === null) return;
+        for (const face of cube.children) {
+          const away = face.getAttribute('data-slot') !== String(front);
+          for (const layer of face.children) {
+            if (layer.classList.contains('face-conv')) continue;
+            if ('inert' in layer && layer.inert !== away) layer.inert = away;
+          }
+        }
+      });
+
+      // -- Announcements ----------------------------------------------------
+
+      const announce = useCallback((text) => {
+        // Clear first so the same text is announced again when it repeats.
+        setAnnouncement('');
+        window.requestAnimationFrame(() => setAnnouncement(text));
+      }, []);
+
+      const frontWorkspace = items[page * FACES + front];
+      const faceName = (workspace) =>
+        workspace === undefined ? (loading ? t('workspace.loading') : t('workspace.emptySlot')) : workspace.title;
+      const faceText = t('a11y.face', { index: front + 1, total: FACES, name: faceName(frontWorkspace) });
+
+      const announcedFace = useRef(null);
+      useEffect(() => {
+        const key = page + ':' + front;
+        if (announcedFace.current === null) {
+          announcedFace.current = key;
+          return;
+        }
+        if (announcedFace.current === key) return;
+        announcedFace.current = key;
+        announce(faceText);
+      }, [page, front, faceText, announce]);
+
+      const lastRunning = useRef({ id: sessionId, running });
+      useEffect(() => {
+        const previous = lastRunning.current;
+        lastRunning.current = { id: sessionId, running };
+        if (previous.id !== sessionId || previous.running === running || sessionRow === undefined) return;
+        announce(t(running ? 'a11y.running' : 'a11y.idle', { name: sessionRow.displayTitle }));
+      }, [sessionId, running]);
+
+      // Failures from host calls surface as a short toast instead of only a
+      // console warning.
+      useEffect(() => {
+        if (ui.notice === null) return undefined;
+        const timer = window.setTimeout(() => channel.update({ notice: null }), 5000);
+        return () => window.clearTimeout(timer);
+      }, [ui.notice, channel]);
+
       // -- Header menu ----------------------------------------------------
 
-      const menuRef = useRef(null);
+      const toggleMenu = useCallback(() => {
+        if (channel.getSnapshot().menuOpen) {
+          channel.update({ menuOpen: false });
+          return;
+        }
+        // The face clips the menu: measure the room under the trigger and
+        // open upward or shorten the list when the cube is small.
+        const box = measureInFace(rootRef.current?.querySelector('.face-conv .session-select'));
+        if (box === null) {
+          setMenuBox(null);
+        } else {
+          const margin = 12;
+          const below = (box.faceRect.bottom - box.rect.bottom) / box.scale - margin;
+          const above = (box.rect.top - box.faceRect.top) / box.scale - margin;
+          const up = below < 160 && above > below;
+          setMenuBox({ up, maxHeight: Math.max(96, Math.min(258, Math.floor(up ? above : below))) });
+        }
+        channel.update({ menuOpen: true });
+        focusWhenReady(
+          () => rootRef.current,
+          ['.session-menu [aria-current="true"]', '.session-menu button'],
+          4,
+        );
+      }, [channel]);
+
       useEffect(() => {
         if (!ui.menuOpen) return undefined;
         const onDocumentPointerDown = (event) => {
@@ -668,24 +995,40 @@ window.__ModuleLoader__.load({
           if (target instanceof Element && target.closest('.conv-sessionline') !== null) return;
           channel.update({ menuOpen: false });
         };
-        const onKeyDown = (event) => {
-          if (event.key === 'Escape') channel.update({ menuOpen: false });
-        };
         document.addEventListener('pointerdown', onDocumentPointerDown, true);
-        document.addEventListener('keydown', onKeyDown, true);
         return () => {
           document.removeEventListener('pointerdown', onDocumentPointerDown, true);
-          document.removeEventListener('keydown', onKeyDown, true);
         };
       }, [ui.menuOpen, channel]);
 
-      // Escape leaves the cube once no menu is open.
+      // -- Escape: one layer per press ---------------------------------------
+      //
+      // Session menu, then the "more" dialog, the guide, the dock, and only
+      // then the conversation. (The composer's mode menu stops the event
+      // itself.) IME composition keeps Escape for itself.
       useEffect(() => {
         const onKeyDown = (event) => {
-          if (event.key !== 'Escape') return;
+          if (event.key !== 'Escape' || event.isComposing || event.keyCode === 229) return;
           const state = channel.getSnapshot();
-          if (state.menuOpen || state.dockOpen) return;
-          if (state.mode === 'inside') channel.update({ mode: 'browse', closed: true });
+          const root = rootRef.current;
+          if (state.menuOpen) {
+            channel.update({ menuOpen: false });
+            focusWhenReady(() => root, ['.face-conv .session-select'], 2);
+          } else if (state.moreOpen) {
+            channel.update({ moreOpen: false });
+          } else if (state.tour !== null && state.mode !== 'inside') {
+            channel.update({ tour: null });
+            writeStored(ONBOARD_KEY, '1');
+          } else if (state.dockOpen) {
+            channel.update({ dockOpen: false });
+            focusWhenReady(() => root, ['.dock-toggle'], 2);
+          } else if (state.mode === 'inside') {
+            pendingFocus.current = 'cube';
+            channel.update({ mode: 'browse', closed: true });
+          } else {
+            return;
+          }
+          event.preventDefault();
         };
         window.addEventListener('keydown', onKeyDown);
         return () => {
@@ -693,15 +1036,103 @@ window.__ModuleLoader__.load({
         };
       }, [channel]);
 
+      // -- Keyboard rotation ------------------------------------------------
+
+      const onCubeKeyDown = useCallback(
+        (event) => {
+          if (event.target !== event.currentTarget) return;
+          switch (event.key) {
+            case 'ArrowLeft':
+              stepFace(-1, 0);
+              break;
+            case 'ArrowRight':
+              stepFace(1, 0);
+              break;
+            case 'ArrowUp':
+              stepFace(0, -1);
+              break;
+            case 'ArrowDown':
+              stepFace(0, 1);
+              break;
+            case 'Home':
+              rotateToFace(0);
+              break;
+            case 'Enter':
+            case ' ': {
+              const state = latest.current;
+              const slot = frontSlotOf(rotation.current.rx, rotation.current.ry);
+              const workspace = state.items[state.page * FACES + slot];
+              if (workspace === undefined || state.mode === 'inside') return;
+              enterWorkspace(workspace, slot);
+              break;
+            }
+            default:
+              return;
+          }
+          event.preventDefault();
+        },
+        [stepFace, rotateToFace, enterWorkspace],
+      );
+
       // -- Derived copy ---------------------------------------------------
 
-      const pageStart = page * FACES + 1;
-      const pageEnd = Math.min(items.length, page * FACES + FACES);
-      const hint = inside ? t('hint.inside') : t('hint.browse');
-      const frontWorkspace = items[page * FACES + front];
+      const sessionCount = (workspace) =>
+        countLabel(t, sessionsOf(workspace, sessionState).length, 'count.sessionOne', 'count.sessions');
       const titleWorkspace = inside ? activeWorkspace ?? frontWorkspace : frontWorkspace;
-      const emptyWorkspace =
-        mode === 'inside' && sessionId === undefined ? activeWorkspace : undefined;
+      const emptyWorkspace = inside && !showConversation ? activeWorkspace : undefined;
+      const conversationTitle = showConversation ? sessionRow?.displayTitle : undefined;
+
+      const pager = (compact) =>
+        pageCount > 1
+          ? h(
+              'div',
+              { className: 'pager' + (compact ? ' compact' : ''), role: 'group', 'aria-label': t('page.title') },
+              h(
+                'button',
+                {
+                  type: 'button',
+                  'aria-label': t('page.prev'),
+                  title: t('page.prev'),
+                  disabled: page === 0,
+                  onClick: () => goPage(page - 1),
+                },
+                h(Icon, { name: 'chevronLeft' }),
+              ),
+              h(
+                'span',
+                {},
+                t('page.label', {
+                  from: page * FACES + 1,
+                  to: Math.min(items.length, page * FACES + FACES),
+                  total: items.length,
+                }),
+              ),
+              h(
+                'button',
+                {
+                  type: 'button',
+                  'aria-label': t('page.next'),
+                  title: t('page.next'),
+                  disabled: page >= pageCount - 1,
+                  onClick: () => goPage(page + 1),
+                },
+                h(Icon, { name: 'chevronRight' }),
+              ),
+            )
+          : null;
+
+      const stepButton = (icon, label, dx, dy, className) =>
+        h(
+          'button',
+          {
+            type: 'button',
+            className,
+            'aria-label': label,
+            title: label,
+            onClick: () => stepFace(dx, dy),
+          },
+          h(Icon, { name: icon }),
+        );
 
       // -- Render ---------------------------------------------------------
 
@@ -719,16 +1150,14 @@ window.__ModuleLoader__.load({
                   'button',
                   {
                     type: 'button',
-                    className: 'ghost-btn',
-                    onClick: () => {
-                      actions.startSession(emptyWorkspace.workspaceId);
-                    },
+                    className: 'primary-btn',
+                    onClick: () => newSession(emptyWorkspace),
                   },
                   h(Icon, { name: 'plus' }),
                   t('sessions.new'),
                 ),
               ),
-        [emptyWorkspace, sessionId, t, actions, renderFactorySlot],
+        [emptyWorkspace, sessionId, t, newSession, renderFactorySlot],
       );
 
       // Scrolling inside the embedded conversation must not depend on which
@@ -792,7 +1221,7 @@ window.__ModuleLoader__.load({
       // cube. Rotating carries it out of view with that Workspace and the next
       // face brings its own Session surface in.
       const conversationPanel = useMemo(() => h(
-        'div',
+        'section',
         { className: 'face-conv', 'data-cube-conversation': '', 'aria-label': t('conv.title') },
         h(
           'header',
@@ -807,10 +1236,17 @@ window.__ModuleLoader__.load({
               h('span', { className: 'conv-path' }, activeWorkspace?.path ?? ''),
             ),
             h(
+              'div',
+              { className: 'conv-nav' },
+              stepButton('chevronLeft', t('face.left'), -1, 0, 'icon-btn'),
+              stepButton('chevronRight', t('face.right'), 1, 0, 'icon-btn'),
+              pager(true),
+            ),
+            h(
               'button',
               {
                 type: 'button',
-                className: 'icon-btn',
+                className: 'icon-btn conv-close',
                 title: t('conv.close'),
                 'aria-label': t('conv.close'),
                 onClick: closeConversation,
@@ -820,51 +1256,58 @@ window.__ModuleLoader__.load({
           ),
           h(
             'div',
-            { className: 'conv-sessionline', ref: menuRef },
+            { className: 'conv-sessionline' },
             h(
               'button',
               {
                 type: 'button',
                 className: 'session-select',
-                'aria-haspopup': 'listbox',
                 'aria-expanded': ui.menuOpen ? 'true' : 'false',
-                onClick: () => channel.update({ menuOpen: !ui.menuOpen }),
+                'aria-controls': 'cube-ui-session-menu',
+                onClick: toggleMenu,
               },
               h(Icon, { name: 'list', className: 'ss-ico' }),
-              h('span', { className: 'ss-label' }, sessionRow?.displayTitle ?? t('sessions.empty')),
-              h(
-                'span',
-                { className: 'ss-status' + (running ? ' running' : '') },
-                running ? t('sessions.running') : t('sessions.idle'),
-              ),
+              h('span', { className: 'ss-label' }, conversationTitle ?? t('sessions.empty')),
+              conversationTitle === undefined
+                ? null
+                : h(
+                    'span',
+                    { className: 'ss-status' + (running ? ' running' : '') },
+                    running ? t('sessions.running') : t('sessions.idle'),
+                  ),
               h('span', { className: 'ss-caret', 'aria-hidden': 'true' }),
             ),
             ui.menuOpen
               ? h(
                   'div',
-                  { className: 'session-menu', role: 'listbox' },
-                  activeSessions.map((row) =>
-                    h(
+                  {
+                    className: 'session-menu' + (menuBox?.up ? ' up' : ''),
+                    id: 'cube-ui-session-menu',
+                    role: 'group',
+                    'aria-label': t('sessions.menu'),
+                    style: menuBox === null ? undefined : { maxHeight: menuBox.maxHeight + 'px' },
+                    onKeyDown: onMenuKeyDown,
+                  },
+                  activeSessions.map((row) => {
+                    const rowRunning = isRunning(row, sessionStatus);
+                    const current = showConversation && row.id === sessionId;
+                    return h(
                       'button',
                       {
                         key: row.id,
                         type: 'button',
-                        role: 'option',
-                        'aria-selected': row.id === sessionId ? 'true' : 'false',
-                        className: row.id === sessionId ? 'current' : undefined,
-                        onClick: () => {
-                          channel.update({ menuOpen: false });
-                          selectSession(row.id);
-                        },
+                        'aria-current': current ? 'true' : undefined,
+                        className: current ? 'current' : undefined,
+                        onClick: () => selectSession(row.id),
                       },
-                      h('span', {}, row.displayTitle),
+                      h('span', { className: 'mi-title' }, row.displayTitle),
                       h(
                         'span',
-                        { className: 'mi-meta' },
-                        row.running ? t('sessions.running') : shortTime(row.updatedAt),
+                        { className: 'mi-meta' + (rowRunning ? ' running' : '') },
+                        rowRunning ? t('sessions.running') : shortTime(row.updatedAt),
                       ),
-                    ),
-                  ),
+                    );
+                  }),
                   h(
                     'button',
                     {
@@ -885,7 +1328,7 @@ window.__ModuleLoader__.load({
         h(
           'div',
           {
-            className: 'conv-body' + (sessionId === undefined ? '' : ' embedded'),
+            className: 'conv-body' + (emptyWorkspace === undefined && sessionId !== undefined ? ' embedded' : ''),
             'data-cube-conversation-body': '',
           },
           conversationBody,
@@ -895,14 +1338,24 @@ window.__ModuleLoader__.load({
         activeWorkspace,
         closeConversation,
         ui.menuOpen,
-        sessionRow,
+        menuBox,
+        conversationTitle,
         running,
         activeSessions,
+        sessionStatus,
         sessionId,
+        showConversation,
+        emptyWorkspace,
         selectSession,
         newSession,
+        toggleMenu,
         conversationBody,
         channel,
+        page,
+        pageCount,
+        items.length,
+        goPage,
+        stepFace,
       ]);
 
       const faces = useMemo(() => pageWorkspaces.map(({ slot, abs, workspace }) => {
@@ -910,6 +1363,7 @@ window.__ModuleLoader__.load({
         const isFront = slot === front;
         const hosting = inside && isFront && workspace !== undefined;
         const selectedWorkspace = workspace !== undefined && workspace.workspaceId === activeWorkspace?.workspaceId;
+        const count = workspace === undefined ? '' : countLabel(t, rows.length, 'count.sessionOne', 'count.sessions');
         return h(
           'div',
           {
@@ -918,9 +1372,11 @@ window.__ModuleLoader__.load({
               'face' +
               (isFront ? ' front' : '') +
               (hosting ? ' hosting' : '') +
-              (selectedWorkspace ? ' selected' : ''),
+              (selectedWorkspace ? ' selected' : '') +
+              (workspace === undefined ? (loading ? ' loading' : ' vacant') : ''),
             'data-slot': String(slot),
             'data-abs': String(abs),
+            'aria-hidden': isFront ? undefined : 'true',
           },
           h(
             'div',
@@ -928,77 +1384,82 @@ window.__ModuleLoader__.load({
             h(
               'div',
               { className: 'face-head' },
-              h('span', { className: 'face-idx' }, pad2(abs + 1)),
-              h('h2', { className: 'face-title' }, workspace === undefined ? t('workspace.emptySlot') : workspace.title),
-              h(
-                'span',
-                { className: 'face-summary' },
-                workspace === undefined ? '' : rows.length + ' ' + t('workspace.count'),
-              ),
+              h('span', { className: 'face-idx', 'aria-hidden': 'true' }, pad2(abs + 1)),
+              h('h2', { className: 'face-title' }, faceName(workspace)),
+              h('span', { className: 'face-summary' }, count),
             ),
             h(
               'div',
               { className: 'face-path' },
-              workspace === undefined ? t('workspace.emptyPath') : workspace.path,
+              workspace === undefined ? (loading ? '' : t('workspace.emptyPath')) : workspace.path,
             ),
             h(
               'ul',
-              { className: 'sessions' },
+              { className: 'sessions', 'aria-label': workspace === undefined ? undefined : t('sessions.list') },
               workspace === undefined
-                ? h('li', { className: 'face-empty' }, '—')
+                ? h('li', { className: 'face-empty' }, loading ? t('workspace.loading') : t('workspace.emptyHint'))
                 : rows.length === 0
                   ? h('li', { className: 'face-empty' }, t('sessions.empty'))
-                  : rows.map((row) =>
-                      h(
+                  : rows.map((row) => {
+                      const rowRunning = isRunning(row, sessionStatus);
+                      return h(
                         'li',
-                        {
-                          key: row.id,
-                          className: 'session' + (row.id === sessionId ? ' current' : ''),
-                          role: 'button',
-                          tabIndex: 0,
-                          'data-sid': row.id,
-                          onClick: () => openFromFace(workspace, slot, row.id),
-                          onKeyDown: (event) => {
-                            if (event.key === 'Enter' || event.key === ' ') {
-                              event.preventDefault();
-                              openFromFace(workspace, slot, row.id);
-                            }
-                          },
-                        },
-                        h('span', { className: 'stitle' }, row.displayTitle),
+                        { key: row.id, className: 'session-item' },
                         h(
-                          'span',
-                          { className: 'smeta' },
-                          row.running ? h('i', { className: 'dot', 'aria-hidden': 'true' }) : null,
-                          h('span', {}, shortTime(row.updatedAt)),
+                          'button',
+                          {
+                            type: 'button',
+                            className: 'session',
+                            'aria-current': row.id === sessionId ? 'true' : undefined,
+                            'data-sid': row.id,
+                            onClick: () => openFromFace(workspace, slot, row.id),
+                          },
+                          h('span', { className: 'stitle' }, row.displayTitle),
+                          h(
+                            'span',
+                            { className: 'smeta' },
+                            rowRunning
+                              ? h(
+                                  'span',
+                                  { className: 'run-badge' },
+                                  h('i', { className: 'dot', 'aria-hidden': 'true' }),
+                                  t('sessions.running'),
+                                )
+                              : null,
+                            h('span', {}, shortTime(row.updatedAt)),
+                          ),
                         ),
-                      ),
-                    ),
+                      );
+                    }),
             ),
             h(
               'div',
               { className: 'face-foot' },
               workspace === undefined
-                ? null
+                ? loading
+                  ? null
+                  : h(
+                      'button',
+                      { type: 'button', className: 'ghost-btn', onClick: () => actions.openSidebar() },
+                      h(Icon, { name: 'layers' }),
+                      t('workspace.addCta'),
+                    )
                 : h(
                     'button',
                     {
                       type: 'button',
-                      className: 'ghost-btn',
+                      className: 'primary-btn',
                       onClick: () => {
+                        pendingFocus.current = 'conv';
                         channel.update({ mode: 'inside', closed: false, workspaceId: workspace.workspaceId });
-                        rotateToFace(slot);
+                        rotateToFace(slot, { silent: true });
                         actions.startSession(workspace.workspaceId);
                       },
                     },
                     h(Icon, { name: 'plus' }),
                     t('sessions.new'),
                   ),
-              h(
-                'span',
-                { className: 'face-count' },
-                workspace === undefined ? '' : rows.length + ' ' + t('workspace.count'),
-              ),
+              h('span', { className: 'face-count' }, count),
             ),
           ),
           h(
@@ -1008,27 +1469,14 @@ window.__ModuleLoader__.load({
             h(
               'div',
               { className: 'room-foot' },
-              h(
-                'span',
-                {
-                  className: 'room-title',
-                  role: 'button',
-                  tabIndex: 0,
-                  onClick: () => rotateToFace(slot),
-                  onKeyDown: (event) => {
-                    if (event.key === 'Enter' || event.key === ' ') {
-                      event.preventDefault();
-                      rotateToFace(slot);
-                    }
-                  },
-                },
-                workspace === undefined ? '' : workspace.title,
-              ),
-              h(
-                'span',
-                { className: 'room-count' },
-                workspace === undefined ? '' : rows.length + ' ' + t('workspace.count'),
-              ),
+              workspace === undefined
+                ? h('span', { className: 'room-title' }, t('workspace.emptySlot'))
+                : h(
+                    'button',
+                    { type: 'button', className: 'room-title', onClick: () => rotateToFace(slot) },
+                    workspace.title,
+                  ),
+              h('span', { className: 'room-count' }, count),
             ),
           ),
           hosting ? conversationPanel : null,
@@ -1036,9 +1484,11 @@ window.__ModuleLoader__.load({
       }), [
         pageWorkspaces,
         sessionState,
+        sessionStatus,
         sessionId,
         front,
         inside,
+        loading,
         activeWorkspace,
         t,
         conversationPanel,
@@ -1047,6 +1497,17 @@ window.__ModuleLoader__.load({
         channel,
         actions,
       ]);
+
+      const tourSteps = [
+        { title: t('tour.rotateTitle'), body: t('tour.rotateBody') },
+        { title: t('tour.openTitle'), body: t('tour.openBody') },
+        { title: t('tour.backTitle'), body: t('tour.backBody') },
+      ];
+      const tourStep = !inside && !loading && !failed && ui.tour !== null ? tourSteps[ui.tour] : undefined;
+      const finishTour = () => {
+        writeStored(ONBOARD_KEY, '1');
+        channel.update({ tour: null });
+      };
 
       return h(
         'div',
@@ -1061,76 +1522,144 @@ window.__ModuleLoader__.load({
             ref: rootRef,
           },
           h(
-            'main',
-            {
-            className: 'stage' + (inside ? ' inside' : ''),
-            'data-mode': mode,
-            ref: stageRef,
-            onPointerDown,
-            onPointerMove,
-            onPointerUp,
-            onPointerCancel: onPointerUp,
-            onLostPointerCapture: onPointerUp,
-          },
-          h('div', { className: 'floor-glow', 'aria-hidden': 'true' }),
-          h(
             'div',
             {
-              className: 'cube-shell' + (pageCount > 1 ? ' paged' : ''),
-              'aria-hidden': inside ? 'true' : undefined,
+              className: 'stage' + (inside ? ' inside' : ''),
+              'data-mode': mode,
+              ref: stageRef,
+              onPointerDown,
+              onPointerMove,
+              onPointerUp,
+              onPointerCancel: onPointerUp,
+              onLostPointerCapture: onPointerUp,
             },
-            h('div', { className: 'cube', ref: cubeRef }, faces),
+            h('div', { className: 'floor-glow', 'aria-hidden': 'true' }),
+            h(
+              'div',
+              {
+                className: 'cube-shell',
+                ref: shellRef,
+                tabIndex: 0,
+                role: 'group',
+                'aria-roledescription': t('a11y.cubeRole'),
+                'aria-label': t('a11y.cube') + ' — ' + faceText,
+                'aria-describedby': 'cube-ui-keys',
+                'aria-busy': loading ? 'true' : undefined,
+                onKeyDown: onCubeKeyDown,
+              },
+              h('div', { className: 'cube', ref: cubeRef }, faces),
+            ),
+            failed
+              ? h(
+                  'div',
+                  { className: 'stage-error', role: 'alert' },
+                  h('p', {}, t('workspace.error')),
+                  h(
+                    'button',
+                    { type: 'button', className: 'primary-btn', onClick: () => window.location.reload() },
+                    t('workspace.retry'),
+                  ),
+                )
+              : null,
           ),
-          ),
+          h('p', { id: 'cube-ui-keys', className: SR_ONLY }, t('a11y.cubeKeys')),
+          h('div', { className: SR_ONLY, role: 'status', 'aria-live': 'polite', 'aria-atomic': 'true' }, announcement),
           h(
             'div',
             { className: 'stage-title' },
             h(
               'div',
               { className: 'st-line' },
-              h('span', { className: 'st-name' }, titleWorkspace?.title ?? t('workspace.none')),
               h(
                 'span',
-                { className: 'st-meta' },
-                titleWorkspace === undefined
-                  ? ''
-                  : sessionsOf(titleWorkspace, sessionState).length + ' ' + t('workspace.count'),
+                { className: 'st-name' },
+                titleWorkspace?.title ??
+                  (loading ? t('workspace.loading') : items.length === 0 ? t('workspace.none') : t('workspace.emptySlot')),
               ),
+              h('span', { className: 'st-meta' }, titleWorkspace === undefined ? '' : sessionCount(titleWorkspace)),
             ),
             inside ? h('span', { className: 'st-hint' }, t('hint.insideShort')) : null,
           ),
           h(
             'div',
             { className: 'hud' },
-            pageCount > 1
-              ? h(
+            h(
+              'div',
+              { className: 'hud-row' },
+              h(
+                'div',
+                { className: 'face-nav', role: 'group', 'aria-label': t('face.nav') },
+                stepButton('chevronLeft', t('face.left'), -1, 0),
+                stepButton('chevronUp', t('face.up'), 0, -1),
+                h('span', { className: 'face-nav-label' }, t('face.label', { index: front + 1, total: FACES })),
+                stepButton('chevronDown', t('face.down'), 0, 1),
+                stepButton('chevronRight', t('face.right'), 1, 0),
+              ),
+              pageCount > 1
+                ? pager(false)
+                : items.length > 0
+                  ? h(
+                      'div',
+                      { className: 'pager' },
+                      h('span', {}, countLabel(t, items.length, 'count.workspaceOne', 'count.workspaces')),
+                    )
+                  : null,
+            ),
+            ui.hintHidden
+              ? null
+              : h(
                   'div',
-                  { className: 'pager' },
+                  { className: 'hud-hint' },
+                  h('span', {}, t('hint.browse')),
                   h(
                     'button',
                     {
                       type: 'button',
-                      'aria-label': t('page.prev'),
-                      title: t('page.prev'),
-                      onClick: () => channel.update({ page: (page - 1 + pageCount) % pageCount }),
+                      className: 'hint-close',
+                      'aria-label': t('hint.dismiss'),
+                      title: t('hint.dismiss'),
+                      onClick: () => {
+                        writeStored(HINT_KEY, '1');
+                        channel.update({ hintHidden: true });
+                      },
                     },
-                    h(Icon, { name: 'chevronLeft' }),
+                    h(Icon, { name: 'close' }),
                   ),
-                  h('span', {}, t('page.label', { from: pageStart, to: pageEnd, total: items.length })),
-                  h(
-                    'button',
-                    {
-                      type: 'button',
-                      'aria-label': t('page.next'),
-                      title: t('page.next'),
-                      onClick: () => channel.update({ page: (page + 1) % pageCount }),
-                    },
-                    h(Icon, { name: 'chevronRight' }),
-                  ),
-                )
-              : h('div', { className: 'pager' }, items.length > 0 ? items.length + ' ' + t('workspace.total') : ''),
-            h('div', { className: 'hud-hint' }, hint),
+                ),
           ),
+          tourStep === undefined
+            ? null
+            : h(
+                'section',
+                { className: 'coach', 'aria-labelledby': 'cube-ui-coach-title' },
+                h(
+                  'p',
+                  { className: 'coach-step' },
+                  t('tour.label') + ' · ' + t('tour.step', { index: ui.tour + 1, total: tourSteps.length }),
+                ),
+                h('h2', { id: 'cube-ui-coach-title' }, tourStep.title),
+                h('p', { className: 'coach-body' }, tourStep.body),
+                h(
+                  'div',
+                  { className: 'coach-actions' },
+                  h('button', { type: 'button', className: 'ghost-btn', onClick: finishTour }, t('tour.skip')),
+                  h(
+                    'button',
+                    {
+                      type: 'button',
+                      className: 'primary-btn',
+                      onClick: () => {
+                        if (ui.tour + 1 >= tourSteps.length) finishTour();
+                        else channel.update({ tour: ui.tour + 1 });
+                      },
+                    },
+                    ui.tour + 1 >= tourSteps.length ? t('tour.done') : t('tour.next'),
+                  ),
+                ),
+              ),
+          ui.notice === null
+            ? null
+            : h('div', { className: 'cube-toast', role: 'status' }, t(ui.notice.key)),
           h(CubeChrome, { usePanelInfo, useWorkspaces, channel, actions, t }),
         ),
       );
@@ -1140,26 +1669,41 @@ window.__ModuleLoader__.load({
     // Overlay chrome: diamond navigation and the dock
     // ---------------------------------------------------------------------
 
+    /** Electron routes keys through a native bridge; synthetic shortcuts fail. */
+    const IS_DESKTOP = typeof navigator !== 'undefined' && /Electron/i.test(navigator.userAgent ?? '');
+
     function CubeChrome(props) {
       const { usePanelInfo, useWorkspaces, channel, actions, t } = props;
       const panelInfo = usePanelInfo((state) => state);
       const workspaceState = useWorkspaces((state) => state);
       const ui = useChannel(channel);
-      const [moreOpen, setMoreOpen] = useState(false);
+      const moreOpen = ui.moreOpen;
       const [tip, setTip] = useState(null);
       const [diag, setDiag] = useState(null);
+      const overlayRef = useRef(null);
+      const returnFocus = useRef(null);
 
       // The chrome belongs to the cube surface; global panels keep their own.
       const cubeVisible = panelInfo?.activePanelId === null || panelInfo?.activePanelId === undefined;
 
+      // The dialog is modal: everything behind it goes inert, focus starts on
+      // its first control and returns to the opener when it closes.
       useEffect(() => {
         if (!moreOpen) return undefined;
-        const onKeyDown = (event) => {
-          if (event.key === 'Escape') setMoreOpen(false);
-        };
-        window.addEventListener('keydown', onKeyDown);
+        const overlay = overlayRef.current;
+        const root = overlay === null ? null : overlay.parentElement;
+        const fenced = [];
+        if (root !== null) for (const node of root.children) if (node !== overlay) fenced.push(node);
+        if (overlay !== null) {
+          for (const node of overlay.children) if (!node.classList.contains('modal-backdrop')) fenced.push(node);
+        }
+        for (const node of fenced) if ('inert' in node) node.inert = true;
+        focusWhenReady(() => overlayRef.current, ['.modal button'], 4);
         return () => {
-          window.removeEventListener('keydown', onKeyDown);
+          for (const node of fenced) if ('inert' in node) node.inert = false;
+          const back = returnFocus.current;
+          returnFocus.current = null;
+          if (back !== null && back.isConnected && typeof back.focus === 'function') back.focus({ preventScroll: true });
         };
       }, [moreOpen]);
 
@@ -1172,9 +1716,11 @@ window.__ModuleLoader__.load({
           ? items.find((item) => (item.sessionIds ?? []).includes(ui.sessionId))?.workspaceId
           : undefined);
 
+      const closeMore = () => channel.update({ moreOpen: false });
+
       const startSession = () => {
-        setMoreOpen(false);
         channel.update({
+          moreOpen: false,
           mode: 'inside',
           closed: false,
           ...(targetWorkspaceId === undefined ? {} : { workspaceId: targetWorkspaceId }),
@@ -1183,8 +1729,17 @@ window.__ModuleLoader__.load({
       };
 
       const openPanel = (panelId) => {
-        setMoreOpen(false);
+        closeMore();
         actions.selectPanel(panelId);
+      };
+
+      const openMore = () => {
+        if (moreOpen) {
+          closeMore();
+          return;
+        }
+        returnFocus.current = document.activeElement;
+        channel.update({ moreOpen: true, dockOpen: false });
       };
 
       const openDock = () => channel.update({ dockOpen: !ui.dockOpen });
@@ -1199,7 +1754,7 @@ window.__ModuleLoader__.load({
         { id: 'session', icon: 'plus', label: t('nav.session'), run: startSession },
         { id: 'plugins', icon: 'grid', label: t('nav.plugins'), run: () => openPanel('plugins') },
         { id: 'schedules', icon: 'clock', label: t('nav.schedules'), run: () => openPanel('schedules') },
-        { id: 'more', icon: 'dots', label: t('nav.more'), run: () => setMoreOpen((open) => !open) },
+        { id: 'more', icon: 'dots', label: t('nav.more'), run: openMore },
       ];
 
       const setScale = (next) => {
@@ -1209,10 +1764,95 @@ window.__ModuleLoader__.load({
       };
       // Read the live value: repeated clicks must each build on the last one.
       const stepScale = (delta) => setScale(channel.getSnapshot().scale + delta);
+      const percent = Math.round(ui.scale * 100) + '%';
+
+      const sizeControls = (className) =>
+        h(
+          'div',
+          { className, role: 'group', 'aria-label': t('size.title') },
+          h(
+            'button',
+            {
+              type: 'button',
+              'aria-label': t('size.smaller'),
+              title: t('size.smaller'),
+              disabled: ui.scale <= SCALE_MIN,
+              onClick: () => stepScale(-0.1),
+            },
+            h(Icon, { name: 'minus' }),
+          ),
+          h(
+            'button',
+            {
+              type: 'button',
+              className: 'size-value',
+              'aria-label': t('size.reset') + ' (' + percent + ')',
+              title: t('size.reset'),
+              onClick: () => setScale(1),
+            },
+            percent,
+          ),
+          h(
+            'button',
+            {
+              type: 'button',
+              'aria-label': t('size.larger'),
+              title: t('size.larger'),
+              disabled: ui.scale >= SCALE_MAX,
+              onClick: () => stepScale(0.1),
+            },
+            h(Icon, { name: 'plus' }),
+          ),
+        );
+
+      const moreRow = (name, note, control) =>
+        h(
+          'div',
+          { className: 'modal-row' },
+          h(
+            'div',
+            { className: 'mr-text' },
+            h('span', { className: 'mr-name' }, name),
+            note === undefined ? null : h('span', { className: 'mr-note' }, note),
+          ),
+          control,
+        );
+
+      const openButton = (name, run, disabled) =>
+        h(
+          'button',
+          {
+            type: 'button',
+            className: 'ghost-btn',
+            'aria-label': t('more.openNamed', { name }),
+            disabled: disabled === true,
+            onClick: run,
+          },
+          t('more.open'),
+        );
+
+      const showDiagnostics = () => {
+        const none = t('diag.none');
+        try {
+          const panel = document.querySelector('.face-conv');
+          const rect = panel === null ? null : panel.getBoundingClientRect();
+          const scroller = document.querySelector('.face-conv [data-conversation-scroll]');
+          setDiag({
+            viewport: window.innerWidth + ' x ' + window.innerHeight + ' @' + window.devicePixelRatio,
+            mode: document.querySelector('.cube-ui')?.getAttribute('data-mode') ?? '?',
+            panel: rect === null ? none : Math.round(rect.width) + ' x ' + Math.round(rect.height),
+            scroller: scroller === null ? none : scroller.clientHeight + ' / ' + scroller.scrollHeight,
+            scrollTop: scroller === null ? none : Math.round(scroller.scrollTop),
+            agent: navigator.userAgent,
+          });
+        } catch (error) {
+          setDiag({ error: String(error && error.message) });
+        }
+      };
 
       return h(
         'div',
-        { className: 'cube-ui-overlay', 'data-cube-chrome': '' },
+        { className: 'cube-ui-overlay', 'data-cube-chrome': '', ref: overlayRef },
         h(
           'nav',
           { className: 'diamond', 'aria-label': t('nav.title') },
@@ -1229,6 +1869,7 @@ window.__ModuleLoader__.load({
                   'data-action': quadrant.id,
                   title: quadrant.label,
                   'aria-label': quadrant.label,
+                  'aria-haspopup': quadrant.id === 'more' ? 'dialog' : undefined,
                   'aria-expanded': quadrant.id === 'more' ? (moreOpen ? 'true' : 'false') : undefined,
                   onClick: quadrant.run,
                   onPointerEnter: (event) => showTip(event, quadrant.label),
@@ -1250,16 +1891,22 @@ window.__ModuleLoader__.load({
               {
                 className: 'modal-backdrop',
                 onClick: (event) => {
-                  if (event.target === event.currentTarget) setMoreOpen(false);
+                  if (event.target === event.currentTarget) closeMore();
                 },
               },
               h(
                 'div',
-                { className: 'modal', role: 'dialog', 'aria-modal': 'true', 'aria-label': t('more.title') },
+                {
+                  className: 'modal',
+                  role: 'dialog',
+                  'aria-modal': 'true',
+                  'aria-labelledby': 'cube-ui-more-title',
+                  onKeyDown: trapTab,
+                },
                 h(
                   'div',
                   { className: 'modal-head' },
-                  h('h2', {}, t('more.title')),
+                  h('h2', { id: 'cube-ui-more-title' }, t('more.title')),
                   h(
                     'button',
                     {
@@ -1267,91 +1914,62 @@ window.__ModuleLoader__.load({
                       className: 'icon-btn',
                       'aria-label': t('more.close'),
                       title: t('more.close'),
-                      onClick: () => setMoreOpen(false),
+                      onClick: closeMore,
                     },
                     h(Icon, { name: 'close' }),
                   ),
                 ),
                 h('p', { className: 'modal-sub' }, t('more.sub')),
-                h(
-                  'div',
-                  { className: 'modal-row' },
-                  h('span', {}, t('more.settings')),
-                  h('span', { className: 'mr-note' }, t('more.settingsMeta')),
+                moreRow(
+                  t('more.settings'),
+                  IS_DESKTOP ? t('dock.settingsDesktop') : t('more.settingsMeta'),
+                  openButton(
+                    t('more.settings'),
+                    () => {
+                      closeMore();
+                      actions.openSettings();
+                    },
+                    IS_DESKTOP,
+                  ),
+                ),
+                moreRow(t('more.plugins'), t('more.pluginsMeta'), openButton(t('more.plugins'), () => openPanel('plugins'))),
+                moreRow(
+                  t('more.schedules'),
+                  t('more.schedulesMeta'),
+                  openButton(t('more.schedules'), () => openPanel('schedules')),
+                ),
+                moreRow(t('more.size'), undefined, sizeControls('size-inline')),
+                moreRow(
+                  t('more.guide'),
+                  t('more.guideMeta'),
                   h(
                     'button',
                     {
                       type: 'button',
                       className: 'ghost-btn',
+                      'aria-label': t('more.openNamed', { name: t('more.guide') }),
                       onClick: () => {
-                        setMoreOpen(false);
-                        actions.openSettings();
+                        writeStored(ONBOARD_KEY, null);
+                        writeStored(HINT_KEY, null);
+                        channel.update({ moreOpen: false, tour: 0, hintHidden: false, mode: 'browse', closed: true });
                       },
                     },
-                    t('more.open'),
+                    t('more.show'),
                   ),
                 ),
-                h(
-                  'div',
-                  { className: 'modal-row' },
-                  h('span', {}, t('more.plugins')),
-                  h('span', { className: 'mr-note' }, t('more.pluginsMeta')),
-                  h(
-                    'button',
-                    { type: 'button', className: 'ghost-btn', onClick: () => openPanel('plugins') },
-                    t('more.open'),
-                  ),
-                ),
-                h(
-                  'div',
-                  { className: 'modal-row' },
-                  h('span', {}, t('more.schedules')),
-                  h('span', { className: 'mr-note' }, t('more.schedulesMeta')),
-                  h(
-                    'button',
-                    { type: 'button', className: 'ghost-btn', onClick: () => openPanel('schedules') },
-                    t('more.open'),
-                  ),
-                ),
-                h(
-                  'div',
-                  { className: 'modal-row' },
-                  h('span', {}, t('more.diagnostics')),
-                  h('span', { className: 'mr-note' }, t('more.diagnosticsMeta')),
-                  h(
-                    'button',
-                    {
-                      type: 'button',
-                      className: 'ghost-btn',
-                      onClick: () => {
-                        try {
-                          const panel = document.querySelector('.face-conv');
-                          const rect = panel === null ? null : panel.getBoundingClientRect();
-                          const scroller = document.querySelector('.face-conv [data-conversation-scroll]');
-                          setDiag({
-                            viewport: window.innerWidth + ' x ' + window.innerHeight + ' @' + window.devicePixelRatio,
-                            mode: document.querySelector('.cube-ui')?.getAttribute('data-mode') ?? '?',
-                            panel: rect === null ? 'なし' : Math.round(rect.width) + ' x ' + Math.round(rect.height),
-                            scroller: scroller === null ? 'なし' : scroller.clientHeight + ' / ' + scroller.scrollHeight,
-                            scrollTop: scroller === null ? 'なし' : Math.round(scroller.scrollTop),
-                            agent: navigator.userAgent,
-                          });
-                        } catch (error) {
-                          setDiag({ error: String(error && error.message) });
-                        }
-                      },
-                    },
-                    t('more.open'),
-                  ),
+                moreRow(
+                  t('more.diagnostics'),
+                  t('more.diagnosticsMeta'),
+                  openButton(t('more.diagnostics'), showDiagnostics),
                 ),
                 diag === null
                   ? null
                   : h(
                       'pre',
-                      { className: 'modal-note', style: { whiteSpace: 'pre-wrap', wordBreak: 'break-all' } },
+                      { className: 'modal-note diag' },
                       Object.entries(diag).map(([key, value]) => key + ': ' + value).join('\n'),
                     ),
-                h('p', { className: 'modal-note' }, t('more.about') + ' ・ v' + VERSION),
+                h('p', { className: 'modal-note' }, t('more.version', { version: VERSION })),
               ),
             )
           : null,
@@ -1365,6 +1983,7 @@ window.__ModuleLoader__.load({
               id: 'cube-ui-dock-panel',
               role: 'region',
               'aria-label': t('dock.title'),
+              hidden: !ui.dockOpen,
             },
             h(
               'div',
@@ -1375,6 +1994,7 @@ window.__ModuleLoader__.load({
                 {
                   type: 'button',
                   className: 'dock-item',
+                  disabled: IS_DESKTOP,
                   onClick: () => {
                     channel.update({ dockOpen: false });
                     actions.openSettings();
@@ -1382,7 +2002,7 @@ window.__ModuleLoader__.load({
                 },
                 h(Icon, { name: 'gear', className: 'di-ico' }),
                 t('dock.settings'),
-                h('span', { className: 'di-meta' }, t('dock.settingsMeta')),
+                h('span', { className: 'di-meta' }, IS_DESKTOP ? t('dock.settingsDesktop') : t('dock.settingsMeta')),
               ),
             ),
             h(
@@ -1420,31 +2040,7 @@ window.__ModuleLoader__.load({
               h('p', { className: 'modal-note' }, t('dock.note')),
             ),
           ),
-          h(
-            'div',
-            { className: 'size-pill', role: 'group', 'aria-label': t('size.title') },
-            h(
-              'button',
-              {
-                type: 'button',
-                'aria-label': t('size.smaller'),
-                title: t('size.smaller'),
-                onClick: () => stepScale(-0.1),
-              },
-              h(Icon, { name: 'minus' }),
-            ),
-            h('span', { title: t('size.title') }, Math.round(ui.scale * 100) + '%'),
-            h(
-              'button',
-              {
-                type: 'button',
-                'aria-label': t('size.larger'),
-                title: t('size.larger'),
-                onClick: () => stepScale(0.1),
-              },
-              h(Icon, { name: 'plus' }),
-            ),
-          ),
+          sizeControls('size-pill'),
           h(
             'button',
             {
@@ -1452,6 +2048,7 @@ window.__ModuleLoader__.load({
               className: 'dock-toggle',
               'aria-expanded': ui.dockOpen ? 'true' : 'false',
               'aria-controls': 'cube-ui-dock-panel',
+              'aria-label': t('dock.title'),
               title: t('dock.title'),
               onClick: openDock,
             },
@@ -1614,10 +2211,11 @@ window.__ModuleLoader__.load({
           if (root !== null && !root.contains(event.target)) setOpen(false);
         };
         const onKeyDown = (event) => {
-          if (event.key !== 'Escape') return;
+          if (event.key !== 'Escape' || event.isComposing) return;
           setOpen(false);
           // Keep the cube's own Escape (leave the inside view) out of it.
           event.stopPropagation();
+          rootRef.current?.querySelector('.cube-mode-trigger')?.focus({ preventScroll: true });
         };
         document.addEventListener('pointerdown', onPointerDown, true);
         document.addEventListener('keydown', onKeyDown, true);
@@ -1637,27 +2235,27 @@ window.__ModuleLoader__.load({
 
       // The face clips its children, so measure it before opening and keep the
       // menu inside it: narrow cubes (size pill below 100%) would otherwise
-      // cut the menu's right edge off. The face is perspective-projected, so
-      // screen rects are scaled against its CSS width and converted back.
+      // cut the menu's right edge off. Shares measureInFace() with the
+      // session menu in the conversation header.
       const openMenu = () => {
         const root = rootRef.current;
-        const trigger = root === null ? null : root.querySelector('.cube-mode-trigger');
-        const face = root === null ? null : root.closest('.face');
-        if (trigger !== null && face !== null && face.offsetWidth > 0) {
-          const triggerRect = trigger.getBoundingClientRect();
-          const faceRect = face.getBoundingClientRect();
-          const scale = faceRect.width / face.offsetWidth;
+        const box = measureInFace(root === null ? null : root.querySelector('.cube-mode-trigger'));
+        if (box !== null) {
+          const { scale, faceRect, rect } = box;
           const margin = 8;
-          const width = Math.max(180, Math.min(252, Math.round(face.offsetWidth - margin * 2)));
-          let left = Math.round((faceRect.right - margin * scale - width * scale - triggerRect.left) / scale);
+          const faceWidth = faceRect.width / scale;
+          const width = Math.max(180, Math.min(252, Math.round(faceWidth - margin * 2)));
+          let left = Math.round((faceRect.right - margin * scale - width * scale - rect.left) / scale);
           if (left > 0) left = 0;
-          const floor = Math.round((faceRect.left + margin * scale - triggerRect.left) / scale);
+          const floor = Math.round((faceRect.left + margin * scale - rect.left) / scale);
           if (left < floor) left = floor;
-          setMenuBox({ left, width });
+          const above = Math.floor((rect.top - faceRect.top) / scale - margin - 6);
+          setMenuBox({ left, width, maxHeight: Math.max(96, Math.min(232, above)) });
         } else {
           setMenuBox(null);
         }
         setOpen(true);
+        focusWhenReady(() => rootRef.current, ['.cube-mode-item[aria-current="true"]', '.cube-mode-item'], 4);
       };
 
       const pick = (option) => {
@@ -1695,8 +2293,8 @@ window.__ModuleLoader__.load({
             disabled: locked || busy,
             title: locked ? t('mode.locked') : t('mode.hint'),
             'aria-label': t('mode.label') + ': ' + label,
-            'aria-haspopup': 'listbox',
             'aria-expanded': open ? 'true' : 'false',
+            'aria-controls': open ? 'cube-ui-mode-menu' : undefined,
             onClick: () => {
               if (locked || busy) return;
               if (open) {
@@ -1715,9 +2313,14 @@ window.__ModuleLoader__.load({
               'div',
               {
                 className: 'cube-mode-menu',
-                role: 'listbox',
+                id: 'cube-ui-mode-menu',
+                role: 'group',
                 'aria-label': t('mode.label'),
-                style: menuBox === null ? undefined : { left: menuBox.left + 'px', width: menuBox.width + 'px' },
+                onKeyDown: onMenuKeyDown,
+                style:
+                  menuBox === null
+                    ? undefined
+                    : { left: menuBox.left + 'px', width: menuBox.width + 'px', maxHeight: menuBox.maxHeight + 'px' },
               },
               options.map((option) =>
                 h(
@@ -1725,9 +2328,8 @@ window.__ModuleLoader__.load({
                   {
                     key: option.id,
                     type: 'button',
-                    role: 'option',
                     className: 'cube-mode-item' + (option.id === currentId ? ' current' : ''),
-                    'aria-selected': option.id === currentId ? 'true' : 'false',
+                    'aria-current': option.id === currentId ? 'true' : undefined,
                     disabled: busy,
                     title: option.description ?? undefined,
                     onClick: () => pick(option),
@@ -1779,38 +2381,63 @@ window.__ModuleLoader__.load({
         workspaceId: undefined,
         sessionId: undefined,
         menuOpen: false,
+        moreOpen: false,
         dockOpen: false,
         lastSession: {},
+        /** Step of the first-run guide, or null once it was seen. */
+        tour: readStored(ONBOARD_KEY) === null ? 0 : null,
+        hintHidden: readStored(HINT_KEY) !== null,
+        /** Last failed host call, shown as a toast: { key, at }. */
+        notice: null,
       });
+
+      // Host calls may throw or reject; either way the user sees a toast and
+      // the console keeps the detail.
+      const guarded = (name, noticeKey, run) => {
+        const fail = (error) => {
+          console.warn('[cube-ui] ' + name + ' failed:', error);
+          channel.update({ notice: { key: noticeKey, at: Date.now() } });
+        };
+        try {
+          const result = run();
+          if (result !== null && typeof result === 'object' && typeof result.then === 'function') {
+            result.then(
+              (value) => {
+                if (value !== null && typeof value === 'object' && value.ok === false) fail(value.error);
+              },
+              fail,
+            );
+          }
+        } catch (error) {
+          fail(error);
+        }
+      };
 
       const actions = {
         openSession(sessionId) {
-          try {
-            ctx.uiWorkspace.openSession(sessionId);
-          } catch (error) {
-            console.warn('[cube-ui] openSession failed:', error);
-          }
+          guarded('openSession', 'error.openSession', () => ctx.uiWorkspace.openSession(sessionId));
         },
         startSession(workspaceId) {
-          try {
-            ctx.uiWorkspace.startSession(workspaceId);
-          } catch (error) {
-            console.warn('[cube-ui] startSession failed:', error);
-          }
+          guarded('startSession', 'error.startSession', () => ctx.uiWorkspace.startSession(workspaceId));
         },
         selectPanel(panelId) {
-          try {
-            ctx.layout.selectPanel(panelId);
-          } catch (error) {
-            console.warn('[cube-ui] selectPanel failed:', error);
-          }
+          guarded('selectPanel', 'error.selectPanel', () => ctx.layout.selectPanel(panelId));
         },
         openSettings() {
-          try {
-            openSettings(ctx);
-          } catch (error) {
-            console.warn('[cube-ui] openSettings failed:', error);
-          }
+          guarded('openSettings', 'error.openSettings', () => openSettings(ctx));
+        },
+        /** Show the standard sidebar (where Workspaces are added). */
+        openSidebar() {
+          guarded('openSidebar', 'error.sidebar', () => {
+            const frame = sidebarFrame();
+            const collapsed =
+              frame === null
+                ? document.querySelector('[data-sidebar-collapsed]') !== null
+                : frame.hasAttribute('data-sidebar-collapsed');
+            // Expanded already: toggling would hide it.
+            if (frame !== null && !collapsed) return;
+            ctx.layout.toggleSidebar();
+          });
         },
       };
 
@@ -1870,30 +2497,34 @@ window.__ModuleLoader__.load({
         }, 'cube-ui: stage session mirror'),
       );
 
-      // Default view: the left sidebar collapsed. Only the API can move it,
-      // and only after the frame has mounted, so retry briefly and then act
-      // once. Narrow windows use the drawer, where the same call would open it
-      // — leave those alone.
+      // Default view: the left sidebar collapsed — on the first visit only.
+      // Afterwards the sidebar is the user's: a reload never re-collapses a
+      // sidebar they opened. Only the API can move it, and only after the
+      // frame has mounted, so retry briefly; when the frame (and so the
+      // sidebar's state) cannot be read, do nothing rather than toggle blind.
+      // Narrow windows use the drawer, where the same call would open it —
+      // leave those alone.
       ctx.effect(() => {
         if (typeof window === 'undefined' || typeof document === 'undefined' || window.innerWidth < 1024) return;
+        if (readStored(SIDEBAR_KEY) !== null) return;
         let tries = 0;
         let timer = 0;
         let done = false;
         const collapse = () => {
           if (done) return;
-          const frame = document.querySelector('[data-sidebar-collapsed], [data-sidebar-drawer]');
-          if (document.querySelector('[data-sidebar-collapsed]') !== null) {
-            done = true;
-            return;
-          }
-          if (frame === null && tries < 20) {
-            tries += 1;
-            timer = window.setTimeout(collapse, 100);
+          const frame = sidebarFrame();
+          if (frame === null) {
+            if (tries < 20) {
+              tries += 1;
+              timer = window.setTimeout(collapse, 100);
+            }
             return;
           }
           done = true;
+          writeStored(SIDEBAR_KEY, '1');
+          if (frame.hasAttribute('data-sidebar-collapsed') || frame.hasAttribute('data-sidebar-drawer')) return;
           try {
-            if (document.querySelector('[data-sidebar-collapsed]') === null) ctx.layout.toggleSidebar();
+            ctx.layout.toggleSidebar();
           } catch (error) {
             console.warn('[cube-ui] sidebar collapse failed:', error);
           }
@@ -1903,6 +2534,15 @@ window.__ModuleLoader__.load({
           window.clearTimeout(timer);
         };
       }, 'cube-ui: collapsed sidebar default');
+    }
+
+    /**
+     * The app frame carries the sidebar state as data attributes. The right
+     * bar column is always rendered, so its parent is the frame.
+     */
+    function sidebarFrame() {
+      if (typeof document === 'undefined') return null;
+      return document.querySelector('[data-rightbar-col]')?.parentElement ?? null;
     }
 
     /**
